@@ -22,7 +22,7 @@ export default function Profile() {
   const mine = playlists.filter((p) => p.owner?.id === user.id);
   return (
     <div className="page">
-      <Header img={imgOf(user)} round kind="Perfil" title={user.display_name || user.id} meta={`${mine.length} playlists propias`} />
+      <Header img={imgOf(user)} round title={user.display_name || user.id} kind={`${mine.length} playlists creadas por ti`} />
       <div className="actions-row">
         {user.external_urls?.spotify && (
           <a className="btn outline" href={user.external_urls.spotify} target="_blank" rel="noreferrer">

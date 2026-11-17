@@ -15,7 +15,10 @@ Cliente web completo para Spotify construido con **React + Vite** sobre la **Spo
 - **Álbumes, artistas y podcasts**: páginas de detalle, guardar/seguir
 - **Me gusta**: guardar o quitar canciones con un clic
 - **Perfil y estadísticas**: canciones y artistas top (4 semanas / 6 meses / siempre), géneros favoritos, escuchado recientemente
-- Diseño responsive (móvil y escritorio)
+- **Sonando ahora** a pantalla completa: fondo inmersivo con la portada difuminada, colores sacados de la portada, pantalla completa
+- **Spotify Canvas**: los vídeos en bucle de cada canción, en la portada o de fondo (vía `api/canvas.js`)
+- **Letras en tiempo real** (LRCLIB): la línea actual se resalta y se rellena mientras suena; pulsa una línea para saltar a ella
+- Diseño **liquid glass** con el arte como protagonista, iconos estilo iOS (Ionicons) y versión móvil
 
 > Adaptado a los cambios de la API de Spotify de febrero de 2026 para apps en modo desarrollo
 > (`/me/library`, `/playlists/{id}/items`, búsqueda limitada a 10 resultados por página, etc.).
@@ -40,6 +43,14 @@ Abre <http://127.0.0.1:5173>.
 
 Proyecto listo para Vercel (`vercel.json` incluye la reescritura SPA para `/callback`).
 Define la variable de entorno `VITE_SPOTIFY_CLIENT_ID` en el proyecto.
+
+## Canvas y letras
+
+- **Canvas**: Spotify no ofrece los Canvas en su API oficial. `api/canvas.js` (función de Vercel) los pide a un servicio
+  comunitario no oficial ([spotify-canva.vercel.app](https://spotify-canva.vercel.app/)). Puedes cambiar el origen con la
+  variable `CANVAS_UPSTREAM`, por ejemplo si despliegas tu propia instancia de
+  [Paxsenix0/Spotify-Canvas-API](https://github.com/Paxsenix0/Spotify-Canvas-API). Si el servicio falla, se muestra la portada.
+- **Letras**: se obtienen en el navegador desde [LRCLIB](https://lrclib.net), una base de datos abierta de letras sincronizadas.
 
 ## Limitaciones de Spotify (modo desarrollo)
 

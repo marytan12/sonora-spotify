@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
+import { useArtColor } from './art.js';
 import PlayerBar from './components/PlayerBar.jsx';
-import Sidebar, { AddToPlaylistModal } from './components/Sidebar.jsx';
+import { AddToPlaylistModal, CreatePlaylistModal } from './components/Sidebar.jsx';
 import { Cover, Icon, imgOf } from './components/ui.jsx';
 import { REDIRECT_URI, handleCallback, isLoggedIn, login } from './spotify.js';
 import { AppProvider, useApp } from './store.jsx';
@@ -38,50 +39,101 @@ export default function App() {
 function Login({ error }) {
   return (
     <div className="login">
+      <div className="login-art" aria-hidden="true">
+        {Array.from({ length: 18 }, (_, i) => (
+          <span key={i} style={{ '--i': i }} />
+        ))}
+      </div>
       <div className="login-card">
-        <img src="/favicon.svg" alt="" width="64" height="64" />
+        <Logo size={56} />
         <h1>Sonora</h1>
-        <p>Tu música de Spotify, en una interfaz web completa: busca, reproduce, organiza tus playlists y descubre tus estadísticas.</p>
+        <p>Tu música de Spotify con las portadas en primer plano: escucha, organiza tus playlists, sigue la letra y mira los Canvas.</p>
         <button className="btn primary big" onClick={login}>
-          Iniciar sesión con Spotify
+          Conectar con Spotify
         </button>
         {error && <p className="warn">{error}</p>}
-        <p className="small muted">
-          Usa el flujo seguro PKCE: no se guarda ninguna contraseña ni secreto. Redirect URI: <code>{REDIRECT_URI}</code>
+        <p className="fine">
+          Inicio de sesión seguro con PKCE, sin contraseñas ni secretos guardados. Dirección de vuelta: <code>{REDIRECT_URI}</code>
         </p>
       </div>
     </div>
   );
 }
 
+export function Logo({ size = 28 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+      <defs>
+        <linearGradient id="lg" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#ff8a5c" />
+          <stop offset="1" stopColor="#b84dff" />
+        </linearGradient>
+      </defs>
+      <rect width="64" height="64" rx="15" fill="url(#lg)" />
+      <path d="M14 38c6-14 14-14 18 0s12 14 18 0" stroke="#fff" strokeWidth="6" fill="none" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 const VIEWS = { home: Home, search: Search, library: Library, liked: Liked, playlist: Playlist, album: Album, artist: Artist, show: Show, profile: Profile };
+const NAV = [
+  ['home', 'Escuchar', 'home'],
+  ['search', 'Buscar', 'search'],
+  ['library', 'Biblioteca', 'library'],
+];
 
 function Shell() {
-  const { route, user } = useApp();
+  const { route, user, playback } = useApp();
+  const [creating, setCreating] = useState(false);
   const View = VIEWS[route.name] || Home;
+  const art = imgOf(playback?.item?.album || playback?.item, 'sm');
+  const ambient = useArtColor(art);
+  const active = route.name === 'liked' ? 'library' : route.name;
+
   return (
-    <div className="app">
-      <Sidebar />
-      <main className="main">
-        <div className="topbar">
-          <div className="history">
-            <button className="icon-btn round" onClick={() => history.back()} aria-label="Atrás">‹</button>
-            <button className="icon-btn round" onClick={() => history.forward()} aria-label="Adelante">›</button>
-          </div>
-          <a href="#/profile" className="user-chip" title="Perfil">
-            {user && imgOf(user) ? <Cover src={imgOf(user, 'sm')} round size={28} /> : <Icon name="user" />}
-            <span className="hide-sm">{user?.display_name}</span>
+    <div className="app" style={{ '--ambient': ambient || '110 90 170' }}>
+      <div className="ambient" aria-hidden="true" />
+      <svg width="0" height="0" style={{ position: 'absolute' }} aria-hidden="true">
+        <filter id="lg-refract" x="0" y="0" width="100%" height="100%" colorInterpolationFilters="sRGB">
+          <feTurbulence type="fractalNoise" baseFrequency="0.006 0.014" numOctaves="2" seed="11" result="noise" />
+          <feGaussianBlur in="noise" stdDeviation="2.5" result="soft" />
+          <feDisplacementMap in="SourceGraphic" in2="soft" scale="34" xChannelSelector="R" yChannelSelector="G" />
+        </filter>
+      </svg>
+      <header className="topnav glass">
+        <a className="brand" href="#/home">
+          <Logo /> <span>Sonora</span>
+        </a>
+        <nav className="tabs" aria-label="Secciones">
+          {NAV.map(([name, label, icon]) => (
+            <a key={name} href={`#/${name}`} className={active === name ? 'on' : ''} aria-current={active === name ? 'page' : undefined}>
+              <Icon name={icon} size={18} />
+              <span>{label}</span>
+            </a>
+          ))}
+        </nav>
+        <div className="nav-right">
+          <button className="icon-btn round" title="Nueva playlist" onClick={() => setCreating(true)}>
+            <Icon name="plus" size={20} />
+          </button>
+          <a href="#/profile" className="user-chip" title="Tu perfil">
+            {user && imgOf(user) ? <Cover src={imgOf(user, 'sm')} round size={30} /> : <Icon name="user" />}
           </a>
         </div>
+      </header>
+      <main className="main">
         <View key={route.name + (route.id || '')} />
       </main>
       <PlayerBar />
-      <nav className="mobile-nav">
-        <a href="#/home" className={route.name === 'home' ? 'active' : ''}><Icon name="home" /> Inicio</a>
-        <a href="#/search" className={route.name === 'search' ? 'active' : ''}><Icon name="search" /> Buscar</a>
-        <a href="#/library" className={route.name === 'library' ? 'active' : ''}><Icon name="library" /> Biblioteca</a>
+      <nav className="mobile-nav glass" aria-label="Secciones">
+        {NAV.map(([name, label, icon]) => (
+          <a key={name} href={`#/${name}`} className={active === name ? 'on' : ''}>
+            <Icon name={icon} /> {label}
+          </a>
+        ))}
       </nav>
       <AddToPlaylistModal />
+      {creating && <CreatePlaylistModal onClose={() => setCreating(false)} />}
     </div>
   );
 }

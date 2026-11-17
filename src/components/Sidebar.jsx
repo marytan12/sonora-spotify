@@ -3,62 +3,6 @@ import { sp } from '../spotify.js';
 import { go, useApp } from '../store.jsx';
 import { Cover, Icon, Modal, imgOf } from './ui.jsx';
 
-export default function Sidebar() {
-  const { route, playlists, user } = useApp();
-  const [creating, setCreating] = useState(false);
-  const [filter, setFilter] = useState('');
-  const nav = [
-    ['home', 'Inicio', 'home'],
-    ['search', 'Buscar', 'search'],
-    ['library', 'Tu biblioteca', 'library'],
-  ];
-  const shown = playlists.filter((p) => p.name.toLowerCase().includes(filter.toLowerCase()));
-  return (
-    <nav className="sidebar">
-      <div className="box">
-        <a className="brand" href="#/home">
-          <img src="/favicon.svg" alt="" width="28" height="28" /> Sonora
-        </a>
-        {nav.map(([name, label, icon]) => (
-          <a key={name} href={`#/${name}`} className={`nav-link ${route.name === name ? 'active' : ''}`}>
-            <Icon name={icon} size={22} /> <span>{label}</span>
-          </a>
-        ))}
-      </div>
-      <div className="box grow">
-        <div className="pl-head">
-          <span>Playlists</span>
-          <button className="icon-btn" title="Crear playlist" onClick={() => setCreating(true)}>
-            <Icon name="plus" />
-          </button>
-        </div>
-        <input className="input small-input" placeholder="Filtrar playlists" value={filter} onChange={(e) => setFilter(e.target.value)} />
-        <a href="#/liked" className={`pl-item ${route.name === 'liked' ? 'active' : ''}`}>
-          <div className="liked-cover">
-            <Icon name="heart" size={16} />
-          </div>
-          <span>
-            Canciones que te gustan
-            <small>Playlist</small>
-          </span>
-        </a>
-        <div className="pl-list">
-          {shown.map((p) => (
-            <a key={p.id} href={`#/playlist/${p.id}`} className={`pl-item ${route.id === p.id ? 'active' : ''}`}>
-              <Cover src={imgOf(p, 'sm')} size={40} />
-              <span>
-                {p.name}
-                <small>{p.owner?.id === user?.id ? 'Tuya' : p.owner?.display_name}</small>
-              </span>
-            </a>
-          ))}
-        </div>
-      </div>
-      {creating && <CreatePlaylistModal onClose={() => setCreating(false)} />}
-    </nav>
-  );
-}
-
 export function CreatePlaylistModal({ onClose, initialUris }) {
   const { refreshPlaylists, toast, fail } = useApp();
   const [name, setName] = useState('');

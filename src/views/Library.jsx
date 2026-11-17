@@ -1,19 +1,25 @@
 import { useEffect, useState } from 'react';
+import { CreatePlaylistModal } from '../components/Sidebar.jsx';
 import TrackList from '../components/TrackList.jsx';
 import { Card, Cover, ErrorBox, Icon, Loading } from '../components/ui.jsx';
+import { useArtColor } from '../art.js';
 import { sp } from '../spotify.js';
 import { useApp } from '../store.jsx';
 
-/** Cabecera común para playlist / álbum / artista / podcast */
-export function Header({ img, round, kind, title, children, meta }) {
+/** Cabecera común: el arte manda. `banner` = foto de artista a todo lo ancho */
+export function Header({ img, round, kind, title, children, meta, banner }) {
+  const color = useArtColor(img);
   return (
-    <header className="hero">
-      <Cover src={img} round={round} size={200} />
+    <header className={`hero ${banner ? 'banner' : ''}`} style={{ '--art': color || '110 90 170' }}>
+      <div className="hero-bg" aria-hidden="true">
+        {img && <img src={img} alt="" />}
+      </div>
+      {!banner && <Cover src={img} round={round} />}
       <div className="hero-text">
-        <span className="small">{kind}</span>
-        <h1 className={title?.length > 30 ? 'long' : ''}>{title}</h1>
-        {children}
+        <h1 className={title?.length > 28 ? 'long' : ''}>{title}</h1>
+        {kind && <p className="kind">{kind}</p>}
         {meta && <div className="meta">{meta}</div>}
+        {children}
       </div>
     </header>
   );
@@ -57,10 +63,17 @@ const TABS = [
 
 export default function Library() {
   const { route, playlists } = useApp();
+  const [creating, setCreating] = useState(false);
   const tab = route.id || 'playlists';
   return (
     <div className="page">
-      <h1>Tu biblioteca</h1>
+      <div className="page-head">
+        <h1>Biblioteca</h1>
+        <button className="btn" onClick={() => setCreating(true)}>
+          <Icon name="plus" size={16} /> Nueva playlist
+        </button>
+      </div>
+      {creating && <CreatePlaylistModal onClose={() => setCreating(false)} />}
       <div className="chips">
         {TABS.map(([v, l]) => (
           <a key={v} href={`#/library/${v}`} className={`chip ${tab === v ? 'on' : ''}`}>
@@ -75,7 +88,7 @@ export default function Library() {
               <Icon name="heart" size={48} />
             </div>
             <div className="card-title">Canciones que te gustan</div>
-            <div className="card-sub">Playlist automática</div>
+            <div className="card-sub">Todo lo que has marcado</div>
           </a>
           {playlists.map((p) => (
             <Card key={p.id} item={p} />
@@ -149,23 +162,22 @@ export function Liked() {
   const tracks = p.items.map((x) => x.track);
   return (
     <div className="page">
-      <header className="hero liked-hero">
+      <header className="hero liked-hero" style={{ '--art': '255 92 138' }}>
+        <div className="hero-bg" aria-hidden="true" />
         <div className="liked-cover huge">
           <Icon name="heart" size={72} />
         </div>
         <div className="hero-text">
-          <span className="small">Playlist</span>
           <h1>Canciones que te gustan</h1>
-          <div className="meta">{user?.display_name} · {p.items.length}{p.hasMore ? '+' : ''} canciones</div>
+          <div className="meta">{p.items.length}{p.hasMore ? '+' : ''} canciones guardadas</div>
         </div>
       </header>
       <div className="actions-row">
         <button
           className="play-big"
           onClick={() => user && actions.playContext(`spotify:user:${user.id}:collection`)}
-          title="Reproducir"
         >
-          <Icon name="play" size={28} />
+          <Icon name="play" size={20} />
         </button>
       </div>
       {p.error && <ErrorBox error={p.error} onRetry={p.reload} />}

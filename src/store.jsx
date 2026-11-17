@@ -30,7 +30,7 @@ export function AppProvider({ children }) {
   useEffect(() => {
     const onHash = () => {
       setRoute(parseHash());
-      document.querySelector('.main')?.scrollTo(0, 0);
+      window.scrollTo(0, 0);
     };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);

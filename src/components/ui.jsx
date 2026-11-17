@@ -32,40 +32,24 @@ export function useAsync(fn, deps) {
   return { ...state, reload: () => setN((x) => x + 1) };
 }
 
-const paths = {
-  home: 'M12 3 2 11h3v9h5v-6h4v6h5v-9h3z',
-  search: 'M10 2a8 8 0 1 0 4.9 14.3l5.4 5.4 1.4-1.4-5.4-5.4A8 8 0 0 0 10 2zm0 2a6 6 0 1 1 0 12 6 6 0 0 1 0-12z',
-  library: 'M4 3h2v18H4zM9 3h2v18H9zm5.2.6 1.9-.6 5.6 17.6-1.9.6z',
-  play: 'M7 4v16l13-8z',
-  pause: 'M6 4h4v16H6zm8 0h4v16h-4z',
-  next: 'M5 4v16l10-8zM17 4h2v16h-2z',
-  prev: 'M19 4v16L9 12zM5 4h2v16H5z',
-  shuffle:
-    'M17 3l4 4-4 4V8h-2.6l-3 3.8-1.3-1.6L13.4 6H17zM3 6h4.6l9.8 12H17v-3l4 4-4 4v-3h-.6L6.6 8H3zm0 12h3.6l2.5-3.1 1.3 1.6L7.4 20H3z',
-  repeat: 'M7 7h10v3l4-4-4-4v3H5v6h2zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2z',
-  heart:
-    'M12 21s-7.5-4.6-9.6-9.2C.9 8.4 3 4 7 4c2.2 0 3.6 1.2 5 3 1.4-1.8 2.8-3 5-3 4 0 6.1 4.4 4.6 7.8C19.5 16.4 12 21 12 21z',
-  plus: 'M11 4h2v7h7v2h-7v7h-2v-7H4v-2h7z',
-  queue: 'M3 5h13v2H3zm0 6h13v2H3zm0 6h8v2H3zm15-4 5 3.5-5 3.5z',
-  devices: 'M3 4h14v10H3zm2 2v6h10V6zM1 16h18v2H1zm19-9h3v11h-3z',
-  volume: 'M3 9h4l5-4v14l-5-4H3zm13.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.1a7 7 0 0 1 0 13.4v2.1a9 9 0 0 0 0-17.6z',
-  mute: 'M3 9h4l5-4v14l-5-4H3zm13.6.4 1.4-1.4 2.1 2.1 2.1-2.1 1.4 1.4-2.1 2.1 2.1 2.1-1.4 1.4-2.1-2.1-2.1 2.1-1.4-1.4 2.1-2.1z',
-  trash: 'M6 7h12l-1 14H7zm3-4h6l1 2h4v2H4V5h4z',
-  dots: 'M5 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm7 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm7 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4z',
-  user: 'M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10zm0 2c-5 0-9 2.5-9 6v2h18v-2c0-3.5-4-6-9-6z',
-  edit: 'M3 17.2V21h3.8L18 9.8 14.2 6zM20.7 7a1 1 0 0 0 0-1.4l-2.3-2.3a1 1 0 0 0-1.4 0L15.2 5 19 8.8z',
-  close: 'M6.4 5 5 6.4 10.6 12 5 17.6 6.4 19l5.6-5.6 5.6 5.6 1.4-1.4-5.6-5.6L19 6.4 17.6 5 12 10.6z',
-  up: 'M12 5l-7 7h4v7h6v-7h4z',
-  down: 'M12 19l7-7h-4V5H9v7H5z',
-  logout: 'M10 3H4v18h6v-2H6V5h4zm6 4-1.4 1.4 2.6 2.6H9v2h8.2l-2.6 2.6L16 17l5-5z',
-  music: 'M9 3v10.6A4 4 0 1 0 11 17V7h8V3z',
+// Iconos: Ionicons (MIT, estilo iOS). Los SF Symbols de Apple no se pueden usar fuera de sus plataformas.
+const files = import.meta.glob('/node_modules/ionicons/dist/svg/{home,search,library,play,pause,play-forward,play-back,shuffle,repeat,heart,heart-outline,add,list,laptop-outline,volume-high,volume-mute,trash-outline,ellipsis-horizontal,person,create-outline,close,chevron-up,chevron-down,log-out-outline,musical-notes,chatbubble-ellipses-outline,settings-outline,expand,image-outline,chevron-back,chevron-forward}.svg', { query: '?raw', import: 'default', eager: true });
+const svgOf = (f) => files[`/node_modules/ionicons/dist/svg/${f}.svg`] || '';
+const ICONS = {
+  home: 'home', search: 'search', library: 'library', play: 'play', pause: 'pause',
+  next: 'play-forward', prev: 'play-back', shuffle: 'shuffle', repeat: 'repeat',
+  heart: 'heart', heartOutline: 'heart-outline', plus: 'add', queue: 'list', devices: 'laptop-outline',
+  volume: 'volume-high', mute: 'volume-mute', trash: 'trash-outline', dots: 'ellipsis-horizontal',
+  user: 'person', edit: 'create-outline', close: 'close', up: 'chevron-up', down: 'chevron-down',
+  logout: 'log-out-outline', music: 'musical-notes', lyrics: 'chatbubble-ellipses-outline',
+  settings: 'settings-outline', fullscreen: 'expand', image: 'image-outline',
+  chevronDown: 'chevron-down', left: 'chevron-back', right: 'chevron-forward',
 };
-export function Icon({ name, size = 20, ...rest }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" {...rest}>
-      <path d={paths[name]} />
-    </svg>
-  );
+const cache = {};
+export function Icon({ name, size = 20, className = '', ...rest }) {
+  const file = ICONS[name] || name;
+  const html = (cache[file] ??= svgOf(file).replace('<svg ', '<svg aria-hidden="true" focusable="false" '));
+  return <span className={`icon ${className}`} style={{ width: size, height: size }} dangerouslySetInnerHTML={{ __html: html }} {...rest} />;
 }
 
 export function Artists({ artists = [] }) {
@@ -109,36 +93,43 @@ export function Card({ item, sub }) {
   const subtitle =
     sub ??
     (type === 'album'
-      ? `${(item.release_date || '').slice(0, 4)} · ${item.artists?.map((a) => a.name).join(', ')}`
+      ? item.artists?.map((a) => a.name).join(', ')
       : type === 'artist'
         ? 'Artista'
         : type === 'playlist'
-          ? `De ${item.owner?.display_name || 'Spotify'}`
+          ? item.owner?.display_name || 'Playlist'
           : type === 'show'
-            ? 'Podcast'
+            ? item.publisher || 'Podcast'
             : '');
   return (
-    <div className="card" onClick={() => route && go(route, item.id)}>
+    <div
+      className={`card ${type === 'artist' ? 'is-artist' : ''}`}
+      onClick={() => route && go(route, item.id)}
+      onKeyDown={(e) => e.key === 'Enter' && route && go(route, item.id)}
+      tabIndex={0}
+      role="link"
+    >
       <div className="card-img">
         <Cover src={imgOf(item)} round={type === 'artist'} />
         <button
           className="fab"
-          title="Reproducir"
+          title={`Reproducir ${item.name}`}
           onClick={(e) => {
             e.stopPropagation();
             actions.playContext(item.uri);
           }}
         >
-          <Icon name="play" size={22} />
+          <Icon name="play" size={20} />
         </button>
       </div>
       <div className="card-title">{item.name}</div>
-      <div className="card-sub">{subtitle}</div>
+      {subtitle && <div className="card-sub">{subtitle}</div>}
     </div>
   );
 }
 
-export function Shelf({ title, items, action, sub }) {
+/** Fila de arte. `row` = carrusel horizontal (estilo estantería), si no, rejilla */
+export function Shelf({ title, items, action, sub, row = true, large }) {
   if (!items?.length) return null;
   return (
     <section className="shelf">
@@ -146,7 +137,7 @@ export function Shelf({ title, items, action, sub }) {
         <h2>{title}</h2>
         {action}
       </div>
-      <div className="grid">
+      <div className={`${row ? 'rail' : 'grid'} ${large ? 'large' : ''}`}>
         {items.filter(Boolean).map((it, i) => (
           <Card key={(it.id || '') + i} item={it} sub={sub?.(it)} />
         ))}

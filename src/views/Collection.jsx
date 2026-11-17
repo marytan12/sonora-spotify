@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import TrackList from '../components/TrackList.jsx';
-import { Card, ErrorBox, Icon, Loading, Modal, Shelf, fmt, imgOf, useAsync } from '../components/ui.jsx';
+import { Artists, Card, ErrorBox, Icon, Loading, Modal, Shelf, fmt, imgOf, useAsync } from '../components/ui.jsx';
 import { sp } from '../spotify.js';
 import { go, useApp } from '../store.jsx';
 import { Header, usePaged } from './Library.jsx';
@@ -25,8 +25,8 @@ function PlayBig({ uri }) {
   const { actions, playback } = useApp();
   const playingThis = playback?.context?.uri === uri && playback?.is_playing;
   return (
-    <button className="play-big" onClick={() => (playingThis ? actions.toggle() : actions.playContext(uri))} title="Reproducir">
-      <Icon name={playingThis ? 'pause' : 'play'} size={28} />
+    <button className={`play-big ${playingThis ? 'is-playing' : ''}`} onClick={() => (playingThis ? actions.toggle() : actions.playContext(uri))}>
+      <Icon name={playingThis ? 'pause' : 'play'} size={20} />
     </button>
   );
 }
@@ -71,13 +71,12 @@ export function Playlist() {
     <div className="page">
       <Header
         img={imgOf(pl)}
-        kind={`Playlist ${pl.public ? 'pública' : 'privada'}${pl.collaborative ? ' · colaborativa' : ''}`}
+        kind={`Playlist ${pl.collaborative ? 'colaborativa' : pl.public ? 'pública' : 'privada'} de ${pl.owner?.display_name}`}
         title={pl.name}
         meta={
           <>
-            <strong>{pl.owner?.display_name}</strong>
-            {total !== undefined && ` · ${total} canciones`}
-            {duration > 0 && ` · ${fmt(duration)}`}
+            {total !== undefined && <span>{total} canciones</span>}
+            {duration > 0 && <span>{fmt(duration)}</span>}
           </>
         }
       >
@@ -229,17 +228,17 @@ export function Album() {
     <div className="page">
       <Header
         img={imgOf(al)}
-        kind={al.album_type === 'single' ? 'Sencillo' : al.album_type === 'compilation' ? 'Recopilatorio' : 'Álbum'}
+        kind={
+          <>
+            <span className="hero-artists"><Artists artists={al.artists} /></span>
+            <span>{al.album_type === 'single' ? 'Sencillo' : al.album_type === 'compilation' ? 'Recopilatorio' : 'Álbum'}, {al.release_date?.slice(0, 4)}</span>
+          </>
+        }
         title={al.name}
         meta={
           <>
-            {al.artists.map((ar, i) => (
-              <span key={ar.id}>
-                {i > 0 && ', '}
-                <a href={`#/artist/${ar.id}`}><strong>{ar.name}</strong></a>
-              </span>
-            ))}
-            {` · ${al.release_date?.slice(0, 4)} · ${al.total_tracks} canciones · ${fmt(dur)}`}
+            <span>{al.total_tracks} canciones</span>
+            <span>{fmt(dur)}</span>
           </>
         }
       />
@@ -289,7 +288,7 @@ export function Artist() {
   const { artist, albums, singles, appears, popular } = a.data;
   return (
     <div className="page">
-      <Header img={imgOf(artist)} round kind="Artista" title={artist.name} meta={artist.genres?.length ? artist.genres.slice(0, 4).join(' · ') : null} />
+      <Header img={imgOf(artist)} banner title={artist.name} kind={artist.genres?.length ? artist.genres.slice(0, 3).join(', ') : 'Artista'} />
       <div className="actions-row">
         <PlayBig uri={artist.uri} />
         <SaveButton uri={artist.uri} labels={['Seguir', 'Siguiendo']} />
@@ -317,7 +316,7 @@ export function Show() {
   const show = s.data;
   return (
     <div className="page">
-      <Header img={imgOf(show)} kind="Podcast" title={show.name} meta={`${show.total_episodes ?? ''} episodios`}>
+      <Header img={imgOf(show)} kind="Podcast" title={show.name} kind={show.publisher || 'Podcast'} meta={show.total_episodes ? <span>{show.total_episodes} episodios</span> : null}>
         <p className="desc">{show.description}</p>
       </Header>
       <div className="actions-row">

@@ -76,7 +76,7 @@ export default function TrackList({ tracks, contextUri, showAlbum = true, showCo
                   title={saved[t.uri] ? 'Quitar de Me gusta' : 'Guardar en Me gusta'}
                   onClick={() => toggleSaved(t.uri)}
                 >
-                  <Icon name="heart" size={16} />
+                  <Icon name={saved[t.uri] ? 'heart' : 'heartOutline'} size={17} />
                 </button>
               )}
             </span>
@@ -129,11 +129,11 @@ export function RowMenu({ x, y, items, onClose }) {
     const close = () => onClose();
     window.addEventListener('mousedown', close);
     window.addEventListener('resize', close);
-    document.querySelector('.main')?.addEventListener('scroll', close);
+    window.addEventListener('scroll', close, true);
     return () => {
       window.removeEventListener('mousedown', close);
       window.removeEventListener('resize', close);
-      document.querySelector('.main')?.removeEventListener('scroll', close);
+      window.removeEventListener('scroll', close, true);
     };
   }, [x, y, onClose]);
   return (

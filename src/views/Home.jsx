@@ -53,19 +53,19 @@ export default function Home() {
 
       <div className="quick">
         <a href="#/liked" className="quick-item">
-          <div className="liked-cover big">♥</div>
+          <div className="liked-cover">♥</div>
           <span>Canciones que te gustan</span>
         </a>
         {playlists.slice(0, 7).map((p) => (
           <a key={p.id} href={`#/playlist/${p.id}`} className="quick-item">
-            {p.images?.[0]?.url ? <img src={p.images[p.images.length - 1].url} alt="" /> : <div className="liked-cover big">♪</div>}
+            {p.images?.[0]?.url ? <img src={p.images[p.images.length - 1].url} alt="" /> : <div className="liked-cover">♪</div>}
             <span>{p.name}</span>
           </a>
         ))}
       </div>
 
       {recent.loading ? <Loading /> : recent.error ? <ErrorBox error={recent.error} onRetry={recent.reload} /> : (
-        <Shelf title="Escuchado recientemente" items={recentAlbums.slice(0, 12)} />
+        <Shelf title="Escuchado recientemente" items={recentAlbums.slice(0, 12)} large />
       )}
 
       <section className="shelf">
