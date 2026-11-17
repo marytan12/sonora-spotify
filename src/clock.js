@@ -17,6 +17,9 @@ export function useClock(playback) {
     const a = anchor.current;
     if (!a || a.uri !== fresh.uri || a.playing !== fresh.playing || fresh.at < a.at) {
       anchor.current = fresh;
+    } else if (a.jumped && fresh.at - a.jumped < 2500) {
+      // Tras buscar, Spotify tarda en aplicar la nueva posición: se ignoran los sondeos
+      // antiguos para que la letra y la barra no salten hacia atrás
     } else if (fresh.at !== a.at) {
       const estimate = a.pos + (a.playing ? fresh.at - a.at : 0);
       if (Math.abs(estimate - fresh.pos) > 1000) anchor.current = fresh;
@@ -33,7 +36,7 @@ export function useClock(playback) {
 
   /** Mueve el reloj al instante (al buscar) sin esperar a Spotify */
   const jump = useCallback((ms) => {
-    if (anchor.current) anchor.current = { ...anchor.current, pos: ms, at: Date.now() };
+    if (anchor.current) anchor.current = { ...anchor.current, pos: ms, at: Date.now(), jumped: Date.now() };
   }, []);
 
   return { now, jump };

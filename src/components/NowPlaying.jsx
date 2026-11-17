@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useArtColor, useCanvas } from '../art.js';
 import { useFrame, useTick } from '../clock.js';
 import { useLyrics } from '../lyrics.js';
@@ -6,30 +6,59 @@ import { useApp } from '../store.jsx';
 import { DeviceList, QueueList, Seek, Transport, Volume } from './controls.jsx';
 import { Artists, Icon, Loading, imgOf } from './ui.jsx';
 
-// ---------- Preferencias (modos de diseño de spotify-now-playing) ----------
+// ---------- Preferencias ----------
 const PREFS_KEY = 'sonora_np_prefs_v2';
 export const DEFAULTS = {
-  theme: 'liquid', // liquid | glass | minimal | aod | xp
-  font: 'inter', // inter | poppins | dot | mono | montserrat
-  shape: 'rounded', // rounded | square | circle | vinyl
+  theme: 'liquid', // liquid | minimal
+  font: 'inter', // inter | montserrat | dot
+  shape: 'rounded', // rounded | square | circle
   filter: 'none', // none | grayscale | sepia | vintage | vivid
-  anim: 'none', // none | spin | pulse | tilt
   accent: 'auto', // auto | #hex
   canvas: 'cover', // none | background | cover | both | portrait
   portraitPos: 'left', // left | center
   blur: 60, // desenfoque del fondo con portada
   canvasBlur: 12, // desenfoque del fondo con Canvas
+  dim: 30, // oscurecer el fondo (0-80 %)
+  glassPanel: true, // panel lateral como tarjeta de cristal (tema cristal líquido)
   lyrics: 'side', // side | cover | line | none
+  lyricSize: 'm', // s | m | l
+  lyricAlign: 'left', // left | center
+  lyricOffset: 0, // ms: positivo adelanta la letra
+  autoHide: false, // ocultar barras tras unos segundos sin mover el ratón
   panel: 'lyrics', // lyrics | queue | devices | settings | none
+};
+// Valores permitidos: cualquier preferencia antigua (vinilo, temas retirados…) vuelve al valor por defecto
+const ALLOWED = {
+  theme: ['liquid', 'minimal'],
+  font: ['inter', 'montserrat', 'dot'],
+  shape: ['rounded', 'square', 'circle'],
+  filter: ['none', 'grayscale', 'sepia', 'vintage', 'vivid'],
+  canvas: ['none', 'background', 'cover', 'both', 'portrait'],
+  portraitPos: ['left', 'center'],
+  lyrics: ['side', 'cover', 'line', 'none'],
+  lyricSize: ['s', 'm', 'l'],
+  lyricAlign: ['left', 'center'],
+  panel: ['lyrics', 'queue', 'devices', 'settings', 'none'],
 };
 const FONTS = {
   inter: { label: 'Inter', css: "'Inter', sans-serif" },
-  poppins: { label: 'Poppins', css: "'Poppins', sans-serif", g: 'Poppins:wght@400;600;700' },
+  montserrat: { label: 'Montserrat', css: "'Montserrat', sans-serif", g: 'Montserrat:wght@400;500;600;700;800' },
   dot: { label: 'Matriz de puntos', css: "'DotGothic16', sans-serif", g: 'DotGothic16' },
-  mono: { label: 'Space Mono', css: "'Space Mono', monospace", g: 'Space+Mono:wght@400;700' },
-  montserrat: { label: 'Montserrat', css: "'Montserrat', sans-serif", g: 'Montserrat:wght@400;600;800' },
 };
-const ACCENTS = ['auto', '#30D158', '#FF453A', '#0A84FF', '#BF5AF2', '#FF9F0A'];
+const ACCENTS = ['auto', '#FFFFFF', '#30D158', '#FF453A', '#0A84FF', '#BF5AF2', '#FF9F0A', '#64D2FF'];
+
+function sanitize(p) {
+  const n = { ...DEFAULTS, ...p };
+  for (const [k, list] of Object.entries(ALLOWED)) if (!list.includes(n[k])) n[k] = DEFAULTS[k];
+  for (const [k, lo, hi] of [['blur', 0, 120], ['canvasBlur', 0, 60], ['dim', 0, 80], ['lyricOffset', -2000, 2000]]) {
+    n[k] = Number.isFinite(n[k]) ? Math.min(hi, Math.max(lo, n[k])) : DEFAULTS[k];
+  }
+  if (typeof n.accent !== 'string' || !(n.accent === 'auto' || /^#[0-9a-f]{6}$/i.test(n.accent))) n.accent = 'auto';
+  n.glassPanel = n.glassPanel !== false;
+  n.autoHide = n.autoHide === true;
+  delete n.anim;
+  return n;
+}
 
 function loadFont(key) {
   const f = FONTS[key];
@@ -44,7 +73,7 @@ function loadFont(key) {
 function usePrefs() {
   const [prefs, setPrefs] = useState(() => {
     try {
-      return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(PREFS_KEY)) };
+      return sanitize(JSON.parse(localStorage.getItem(PREFS_KEY)));
     } catch {
       return DEFAULTS;
     }
@@ -63,13 +92,26 @@ function usePrefs() {
   return [prefs, update];
 }
 
-function Clock() {
-  const [t, setT] = useState(() => new Date());
+/** true tras `ms` sin mover el ratón ni pulsar teclas (solo si `enabled`) */
+function useIdle(enabled, ms = 3000) {
+  const [idle, setIdle] = useState(false);
   useEffect(() => {
-    const i = setInterval(() => setT(new Date()), 10_000);
-    return () => clearInterval(i);
-  }, []);
-  return <span className="aod-clock">{t.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}</span>;
+    if (!enabled) return setIdle(false);
+    let t;
+    const wake = () => {
+      setIdle(false);
+      clearTimeout(t);
+      t = setTimeout(() => setIdle(true), ms);
+    };
+    wake();
+    const evs = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'wheel'];
+    evs.forEach((e) => window.addEventListener(e, wake, { passive: true }));
+    return () => {
+      clearTimeout(t);
+      evs.forEach((e) => window.removeEventListener(e, wake));
+    };
+  }, [enabled, ms]);
+  return idle;
 }
 
 // ======================= VISTA =======================
@@ -83,7 +125,11 @@ export default function NowPlaying({ onClose, clock }) {
   const canvas = useCanvas(prefs.canvas !== 'none' && isTrack ? item.id : null);
   const progress = useTick(clock.now, playback?.is_playing, 150);
   const root = useRef(null);
-  const artRef = useRef(null);
+  const idle = useIdle(prefs.autoHide && !!playback?.is_playing && prefs.panel !== 'settings');
+  // Reloj de la letra con el ajuste de sincronía del usuario
+  const offset = prefs.lyricOffset;
+  const clockNow = clock.now;
+  const lyricNow = useCallback(() => clockNow() + offset, [clockNow, offset]);
 
   useEffect(() => {
     const k = (e) => e.key === 'Escape' && !document.fullscreenElement && onClose();
@@ -102,16 +148,6 @@ export default function NowPlaying({ onClose, clock }) {
 
   const fullscreen = () => (document.fullscreenElement ? document.exitFullscreen() : root.current?.requestFullscreen?.());
 
-  // Animación "inclinación": sigue al ratón
-  const onMove = (e) => {
-    if (prefs.anim !== 'tilt' || !artRef.current) return;
-    const r = artRef.current.getBoundingClientRect();
-    const x = (e.clientX - (r.left + r.width / 2)) / r.width;
-    const y = (e.clientY - (r.top + r.height / 2)) / r.height;
-    artRef.current.style.setProperty('--rx', `${(-y * 14).toFixed(2)}deg`);
-    artRef.current.style.setProperty('--ry', `${(x * 14).toFixed(2)}deg`);
-  };
-
   const canvasCover = canvas && ['cover', 'both', 'portrait'].includes(prefs.canvas);
   const canvasBg = canvas && ['background', 'both'].includes(prefs.canvas);
   const portrait = canvas && prefs.canvas === 'portrait';
@@ -124,7 +160,11 @@ export default function NowPlaying({ onClose, clock }) {
     `theme-${prefs.theme}`,
     `shape-${prefs.shape}`,
     `filter-${prefs.filter}`,
-    `anim-${prefs.anim}`,
+    `lyr-${prefs.lyricSize}`,
+    `lyr-align-${prefs.lyricAlign}`,
+    `font-${prefs.font}`,
+    prefs.glassPanel ? 'glass-panel' : '',
+    idle ? 'is-idle' : '',
     playback?.is_playing ? 'is-playing' : 'is-paused',
     portrait ? `portrait pos-${prefs.portraitPos}` : '',
     showSide ? '' : 'no-side',
@@ -134,11 +174,11 @@ export default function NowPlaying({ onClose, clock }) {
     <div
       ref={root}
       className={cls}
-      onMouseMove={onMove}
       style={{
         '--art': color || '120 110 160',
         '--accent': accent,
         '--blur': `${canvasBg ? prefs.canvasBlur : prefs.blur}px`,
+        '--dim': prefs.dim / 100,
         '--np-font': FONTS[prefs.font]?.css,
       }}
       role="dialog"
@@ -153,7 +193,7 @@ export default function NowPlaying({ onClose, clock }) {
           <Icon name="chevronDown" size={24} />
         </button>
         <div className="np-source">
-          {prefs.theme === 'aod' ? <Clock /> : playback?.device && <span>Sonando en {playback.device.name}</span>}
+          {playback?.device && <span>Sonando en {playback.device.name}</span>}
         </div>
         <button className="icon-btn round" onClick={fullscreen} title="Pantalla completa">
           <Icon name="fullscreen" size={20} />
@@ -163,7 +203,7 @@ export default function NowPlaying({ onClose, clock }) {
       <div className="np-body">
         <section className="np-main">
           <div className="np-stage">
-            <div ref={artRef} className={`np-artwork ${canvasCover ? 'has-canvas' : ''}`}>
+            <div className={`np-artwork ${canvasCover ? 'has-canvas' : ''}`}>
               <div className="np-artwork-inner">
                 {canvasCover ? (
                   <video key={canvas} src={canvas} autoPlay loop muted playsInline poster={art} />
@@ -176,7 +216,7 @@ export default function NowPlaying({ onClose, clock }) {
                 )}
               </div>
               {isTrack && (prefs.lyrics === 'cover' || prefs.lyrics === 'line') && (
-                <Lyrics item={item} now={clock.now} onSeek={seek} variant={prefs.lyrics} />
+                <Lyrics item={item} now={lyricNow} onSeek={seek} variant={prefs.lyrics} />
               )}
             </div>
           </div>
@@ -212,7 +252,7 @@ export default function NowPlaying({ onClose, clock }) {
           <section className={`np-side ${sideIsLyrics ? 'is-lyrics' : ''}`}>
             {prefs.panel === 'lyrics' &&
               (prefs.lyrics === 'side' ? (
-                <Lyrics item={item} now={clock.now} onSeek={seek} variant="side" />
+                <Lyrics item={item} now={lyricNow} onSeek={(t) => seek(Math.max(0, t - offset))} variant="side" />
               ) : (
                 <p className="lyrics-msg">La letra se muestra sobre la portada. Cámbialo en Ajustes.</p>
               ))}
@@ -242,31 +282,76 @@ export default function NowPlaying({ onClose, clock }) {
 }
 
 // ======================= LETRA =======================
+/** Parte una línea en palabras para rellenarlas una a una: un degradado sobre la línea
+ *  entera se veía mal cuando la línea ocupa varias filas (todas se rellenaban a la vez). */
+function Words({ text }) {
+  if (!text) return '♪';
+  return text.split(' ').map((w, i) => (
+    <span key={i} className="w">
+      {w}
+      {' '}
+    </span>
+  ));
+}
+
+function fillWords(el, f) {
+  const words = el.querySelectorAll('.w');
+  if (!words.length) return;
+  let total = 0;
+  for (const w of words) total += w.textContent.length;
+  let acc = 0;
+  for (const w of words) {
+    const len = w.textContent.length;
+    const p = Math.min(1, Math.max(0, (f * total - acc) / len));
+    acc += len;
+    const v = `${(p * 100).toFixed(1)}%`;
+    if (w.style.getPropertyValue('--wf') !== v) w.style.setProperty('--wf', v);
+  }
+}
+
 function Lyrics({ item, now, onSeek, variant }) {
   const lyr = useLyrics(item, true);
   const [active, setActive] = useState(-1);
   const box = useRef(null);
+  const userScroll = useRef(0);
   const synced = lyr.status === 'synced';
   const lines = synced ? lyr.lines : null;
 
-  // Cada fotograma: línea activa y relleno progresivo (sin re-renderizar la lista)
+  // La línea activa de la canción anterior no debe arrastrarse a la nueva
+  useEffect(() => setActive(-1), [lines]);
+
+  // Cada fotograma: línea activa y relleno progresivo palabra a palabra (sin re-renderizar la lista)
   useFrame(() => {
     if (!lines) return;
-    const t = now() + 200;
+    const t = now() + 150;
     let i = -1;
     for (let k = 0; k < lines.length && lines[k].t <= t; k++) i = k;
     setActive((prev) => (prev === i ? prev : i));
     const el = box.current?.querySelector('.line.now');
     if (el && i >= 0) {
       const end = lines[i + 1]?.t ?? item?.duration_ms ?? lines[i].t + 4000;
-      const span = Math.max(300, Math.min(end - lines[i].t, 7000));
-      el.style.setProperty('--fill', `${(Math.min(1, Math.max(0, (t - lines[i].t) / span)) * 100).toFixed(1)}%`);
+      // El relleno termina un poco antes del cambio de línea para que se lea completo
+      const span = Math.max(300, Math.min((end - lines[i].t) * 0.92, 7000));
+      fillWords(el, Math.min(1, Math.max(0, (t - lines[i].t) / span)));
     }
   }, [lines, now, item?.duration_ms]);
 
+  // Si el usuario desplaza la letra a mano, se respeta durante unos segundos
+  useEffect(() => {
+    const c = box.current;
+    if (!c || variant !== 'side') return;
+    const mark = () => (userScroll.current = Date.now());
+    c.addEventListener('wheel', mark, { passive: true });
+    c.addEventListener('touchmove', mark, { passive: true });
+    return () => {
+      c.removeEventListener('wheel', mark);
+      c.removeEventListener('touchmove', mark);
+    };
+  }, [variant, lyr.status]);
+
   // Desplazamiento suave para centrar la línea activa
   useEffect(() => {
-    if (variant !== 'side' || active < 0) return;
+    if (variant !== 'side' || active < 0 || Date.now() - userScroll.current < 3500) return;
     const c = box.current;
     const el = c?.querySelector(`[data-i="${active}"]`);
     if (!c || !el) return;
@@ -294,7 +379,7 @@ function Lyrics({ item, now, onSeek, variant }) {
         ) : (
           lines.slice(from, to + 1).map((l, k) => (
             <p key={from + k} className={`line ${from + k === active ? 'now' : ''}`}>
-              {l.text || '♪'}
+              {from + k === active ? <Words text={l.text} /> : l.text || '♪'}
             </p>
           ))
         )}
@@ -315,7 +400,7 @@ function Lyrics({ item, now, onSeek, variant }) {
             className={`line ${i === active ? 'now' : i < active ? 'past' : ''}`}
             onClick={() => onSeek(l.t)}
           >
-            {l.text || '♪'}
+            {i === active ? <Words text={l.text} /> : l.text || '♪'}
           </button>
         ) : (
           <p key={i} className="line">
@@ -344,14 +429,36 @@ function Options({ label, value, options, onChange }) {
   );
 }
 
-function Slider({ label, value, max, onChange }) {
+function Slider({ label, value, min = 0, max, step = 1, format = (v) => v, onChange }) {
   return (
     <label className="opt">
       <span className="opt-label">
-        {label} <output>{value}</output>
+        {label} <output>{format(value)}</output>
       </span>
-      <input type="range" min="0" max={max} value={value} style={{ '--p': `${(value / max) * 100}%` }} onChange={(e) => onChange(Number(e.target.value))} />
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        style={{ '--p': `${((value - min) / (max - min)) * 100}%` }}
+        onChange={(e) => onChange(Number(e.target.value))}
+      />
     </label>
+  );
+}
+
+function Toggle({ label, value, onChange }) {
+  return (
+    <Options
+      label={label}
+      value={value ? 'on' : 'off'}
+      onChange={(v) => onChange(v === 'on')}
+      options={[
+        ['on', 'Sí'],
+        ['off', 'No'],
+      ]}
+    />
   );
 }
 
@@ -365,12 +472,10 @@ function Settings({ prefs, set, canvas, isTrack }) {
         onChange={(theme) => set({ theme })}
         options={[
           ['liquid', 'Cristal líquido'],
-          ['glass', 'Cristal'],
           ['minimal', 'Minimal'],
-          ['aod', 'Pantalla siempre activa'],
-          ['xp', 'Retro XP'],
         ]}
       />
+      {prefs.theme === 'liquid' && <Toggle label="Panel lateral de cristal" value={prefs.glassPanel} onChange={(glassPanel) => set({ glassPanel })} />}
       <Options label="Fuente" value={prefs.font} onChange={(font) => set({ font })} options={Object.entries(FONTS).map(([k, f]) => [k, f.label])} />
       <Options
         label="Forma de la portada"
@@ -380,7 +485,6 @@ function Settings({ prefs, set, canvas, isTrack }) {
           ['rounded', 'Redondeada'],
           ['square', 'Cuadrada'],
           ['circle', 'Circular'],
-          ['vinyl', 'Vinilo'],
         ]}
       />
       <Options
@@ -393,17 +497,6 @@ function Settings({ prefs, set, canvas, isTrack }) {
           ['sepia', 'Sepia'],
           ['vintage', 'Vintage'],
           ['vivid', 'Vívido'],
-        ]}
-      />
-      <Options
-        label="Animación de la portada"
-        value={prefs.anim}
-        onChange={(anim) => set({ anim })}
-        options={[
-          ['none', 'Ninguna'],
-          ['spin', 'Giro'],
-          ['pulse', 'Pulso'],
-          ['tilt', 'Inclinación con el ratón'],
         ]}
       />
       <fieldset className="opt">
@@ -435,6 +528,40 @@ function Settings({ prefs, set, canvas, isTrack }) {
           ['none', 'Ocultar'],
         ]}
       />
+      {prefs.lyrics !== 'none' && (
+        <>
+          <Options
+            label="Tamaño de la letra"
+            value={prefs.lyricSize}
+            onChange={(lyricSize) => set({ lyricSize })}
+            options={[
+              ['s', 'Pequeña'],
+              ['m', 'Mediana'],
+              ['l', 'Grande'],
+            ]}
+          />
+          {prefs.lyrics === 'side' && (
+            <Options
+              label="Alineación de la letra"
+              value={prefs.lyricAlign}
+              onChange={(lyricAlign) => set({ lyricAlign })}
+              options={[
+                ['left', 'Izquierda'],
+                ['center', 'Centrada'],
+              ]}
+            />
+          )}
+          <Slider
+            label="Sincronía de la letra"
+            value={prefs.lyricOffset}
+            min={-2000}
+            max={2000}
+            step={100}
+            format={(v) => (v === 0 ? 'exacta' : `${v > 0 ? '+' : '−'}${(Math.abs(v) / 1000).toFixed(1)} s ${v > 0 ? 'antes' : 'después'}`)}
+            onChange={(lyricOffset) => set({ lyricOffset })}
+          />
+        </>
+      )}
       <Options
         label="Canvas"
         value={prefs.canvas}
@@ -463,6 +590,8 @@ function Settings({ prefs, set, canvas, isTrack }) {
       )}
       <Slider label="Desenfoque del fondo (portada)" value={prefs.blur} max={120} onChange={(blur) => set({ blur })} />
       <Slider label="Desenfoque del fondo (Canvas)" value={prefs.canvasBlur} max={60} onChange={(canvasBlur) => set({ canvasBlur })} />
+      <Slider label="Oscurecer el fondo" value={prefs.dim} max={80} format={(v) => `${v} %`} onChange={(dim) => set({ dim })} />
+      <Toggle label="Ocultar barras sin mover el ratón (3 s)" value={prefs.autoHide} onChange={(autoHide) => set({ autoHide })} />
       <button className="btn" type="button" onClick={() => set({ ...DEFAULTS, panel: 'settings' })}>
         Restablecer ajustes
       </button>
