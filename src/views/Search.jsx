@@ -119,7 +119,7 @@ export default function Search() {
               list(k).length > 0 && (
                 <section className="shelf" key={k}>
                   <h2>{TYPES.find((t) => t[0] === k)[1]}</h2>
-                  <div className="grid">
+                  <div className={type === 'all' ? 'rail' : 'grid'}>
                     {list(k).map((it) => (
                       <Card key={it.id} item={it} />
                     ))}

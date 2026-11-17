@@ -134,9 +134,15 @@ function Volume() {
 
 // ======================= BARRA INFERIOR =======================
 export default function PlayerBar() {
-  const { playback, actions, saved, checkSaved, toggleSaved } = useApp();
+  const { playback, actions, saved, checkSaved, toggleSaved, route } = useApp();
   const [panel, setPanel] = useState(null); // 'queue' | 'devices'
   const [open, setOpen] = useState(false);
+
+  // Al navegar (p. ej. pulsando un artista) se cierran la vista y los paneles
+  useEffect(() => {
+    setOpen(false);
+    setPanel(null);
+  }, [route.name, route.id]);
   const item = playback?.item;
   const progress = useProgress(playback);
 
@@ -195,6 +201,9 @@ export default function PlayerBar() {
         </div>
 
         <div className="extras">
+          <button className="play-btn mini show-sm" onClick={actions.toggle} title={playback?.is_playing ? 'Pausar' : 'Reproducir'}>
+            <Icon name={playback?.is_playing ? 'pause' : 'play'} size={18} />
+          </button>
           <button className="icon-btn" onClick={() => setOpen(true)} title="Letra">
             <Icon name="lyrics" size={18} />
           </button>
@@ -405,6 +414,7 @@ function Lyrics({ item, progress, onSeek }) {
   if (!item) return null;
   if (lyr.status === 'loading' || lyr.status === 'idle') return <Loading />;
   if (lyr.status === 'instrumental') return <p className="lyrics-msg">Canción instrumental.</p>;
+  if (lyr.status === 'episode') return <p className="lyrics-msg">Los podcasts no tienen letra.</p>;
   if (lyr.status !== 'synced' && lyr.status !== 'plain')
     return <p className="lyrics-msg">No hay letra disponible para esta canción en LRCLIB.</p>;
 

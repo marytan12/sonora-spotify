@@ -40,7 +40,8 @@ export function useLyrics(track, enabled) {
   const id = track?.id;
   const [state, setState] = useState({ status: 'idle' });
   useEffect(() => {
-    if (!enabled || !id || track.type !== 'track') return setState({ status: 'none' });
+    if (!enabled || !id) return setState({ status: 'none' });
+    if (track.type !== 'track') return setState({ status: 'episode' });
     if (cache.has(id)) return setState(cache.get(id));
     let alive = true;
     setState({ status: 'loading' });
