@@ -1,7 +1,31 @@
 // Letras sincronizadas desde LRCLIB (https://lrclib.net), API abierta y con CORS.
 import { useEffect, useState } from 'react';
 
+const LRCLIB = 'https://lrclib.net/api';
 const cache = new Map();
+
+// ---------- Letra elegida a mano (cuando la automática no cuadra) ----------
+const PICK_KEY = 'sonora_lyrics_pick';
+let picks = {};
+try {
+  picks = JSON.parse(localStorage.getItem(PICK_KEY)) || {};
+} catch {
+  /* sin almacenamiento */
+}
+const listeners = new Set();
+
+/** Fija la letra de LRCLIB `lrclibId` para la canción `trackId` (null = volver a la automática) */
+export function pickLyrics(trackId, lrclibId) {
+  if (lrclibId == null) delete picks[trackId];
+  else picks[trackId] = lrclibId;
+  try {
+    localStorage.setItem(PICK_KEY, JSON.stringify(picks));
+  } catch {
+    /* sin almacenamiento */
+  }
+  cache.delete(trackId);
+  listeners.forEach((f) => f(trackId));
+}
 
 function parseLrc(lrc) {
   const lines = [];
@@ -26,39 +50,79 @@ function parseLrc(lrc) {
   return lines.filter((l, i) => l.text || (i > 0 && lines[i - 1].text));
 }
 
-async function fetchLyrics(track) {
+const secsOf = (track) => Math.round((track.duration_ms || 0) / 1000);
+const cleanName = (name) => name.replace(/\s+-\s+.*$/, '').replace(/\s*\((?:feat|with|ft)\.?[^)]*\)/i, '').trim();
+
+async function getJson(url) {
+  const res = await fetch(url);
+  return res.ok ? res.json() : null;
+}
+
+/** Convierte una entrada de LRCLIB en el estado de la letra, con datos para saber si cuadra */
+function toResult(data, source, secs) {
+  const meta = {
+    id: data.id,
+    source, // exact | search | manual
+    name: data.trackName,
+    artist: data.artistName,
+    diff: data.duration && secs ? Math.abs(data.duration - secs) : null,
+  };
+  // Sospechosa: encontrada por búsqueda aproximada o con una duración bastante distinta
+  meta.suspicious = source !== 'manual' && (source === 'search' || (meta.diff ?? 0) > 3);
+  if (data.instrumental) return { status: 'instrumental', meta };
+  if (data.syncedLyrics) {
+    const lines = parseLrc(data.syncedLyrics);
+    if (lines.length) return { status: 'synced', lines, meta };
+  }
+  if (data.plainLyrics) return { status: 'plain', lines: data.plainLyrics.split(/\r?\n/).map((text) => ({ text })), meta };
+  return { status: 'none', meta };
+}
+
+/** Todas las letras candidatas para una canción, las más probables primero */
+export async function lyricsCandidates(track) {
   const artist = track.artists?.[0]?.name || '';
-  const secs = Math.round((track.duration_ms || 0) / 1000);
+  const name = cleanName(track.name);
+  const secs = secsOf(track);
+  const lists = await Promise.all([
+    getJson(`${LRCLIB}/search?${new URLSearchParams({ track_name: name, artist_name: artist })}`).catch(() => null),
+    getJson(`${LRCLIB}/search?${new URLSearchParams({ q: `${name} ${artist}` })}`).catch(() => null),
+  ]);
+  const seen = new Set();
+  const all = lists.flat().filter((x) => x && !seen.has(x.id) && seen.add(x.id));
+  const close = (x) => Math.abs((x.duration || 0) - secs);
+  return all.sort((a, b) => !!b.syncedLyrics - !!a.syncedLyrics || close(a) - close(b)).slice(0, 20);
+}
+
+async function fetchLyrics(track) {
+  const secs = secsOf(track);
+  const picked = picks[track.id];
+  if (picked) {
+    const data = await getJson(`${LRCLIB}/get/${picked}`);
+    if (data) return toResult(data, 'manual', secs);
+  }
   const base = {
-    artist_name: artist,
+    artist_name: track.artists?.[0]?.name || '',
     track_name: track.name,
     album_name: track.album?.name || '',
     duration: String(secs),
   };
-  let res = await fetch(`https://lrclib.net/api/get?${new URLSearchParams(base)}`);
-  let data = res.ok ? await res.json() : null;
-  if (!data) {
-    // Búsqueda aproximada: sin sufijos tipo "- Remastered" y con la duración más parecida
-    const name = track.name.replace(/\s+-\s+.*$/, '').replace(/\s*\((?:feat|with|ft)\.?[^)]*\)/i, '').trim();
-    res = await fetch(`https://lrclib.net/api/search?${new URLSearchParams({ track_name: name, artist_name: artist })}`);
-    const list = (res.ok ? await res.json() : []).filter((x) => !secs || !x.duration || Math.abs(x.duration - secs) <= 8);
-    const close = (x) => Math.abs((x.duration || secs) - secs);
-    list.sort((a, b) => !!b.syncedLyrics - !!a.syncedLyrics || close(a) - close(b));
-    data = list[0] || null;
-  }
-  if (!data) return { status: 'none' };
-  if (data.instrumental) return { status: 'instrumental' };
-  if (data.syncedLyrics) {
-    const lines = parseLrc(data.syncedLyrics);
-    if (lines.length) return { status: 'synced', lines };
-  }
-  if (data.plainLyrics) return { status: 'plain', lines: data.plainLyrics.split(/\r?\n/).map((text) => ({ text })) };
-  return { status: 'none' };
+  const exact = await getJson(`${LRCLIB}/get?${new URLSearchParams(base)}`);
+  if (exact) return toResult(exact, 'exact', secs);
+  // Búsqueda aproximada: sin sufijos tipo "- Remastered" y con la duración más parecida
+  const list = (await lyricsCandidates(track)).filter((x) => !secs || !x.duration || Math.abs(x.duration - secs) <= 8);
+  return list[0] ? toResult(list[0], 'search', secs) : { status: 'none' };
 }
 
 export function useLyrics(track, enabled) {
   const id = track?.id;
   const [state, setState] = useState({ status: 'idle' });
+  const [ver, setVer] = useState(0);
+  // Recarga cuando se elige otra letra para esta canción
+  useEffect(() => {
+    const f = (trackId) => trackId === id && setVer((v) => v + 1);
+    listeners.add(f);
+    return () => listeners.delete(f);
+  }, [id]);
   useEffect(() => {
     if (!enabled || !id) return setState({ status: 'none', id });
     if (track.type !== 'track') return setState({ status: 'episode', id });
@@ -75,7 +139,7 @@ export function useLyrics(track, enabled) {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, enabled]);
+  }, [id, enabled, ver]);
   // Al cambiar de canción, no mostrar la letra de la anterior mientras carga la nueva
   return state.id === id ? state : { status: 'loading', id };
 }
