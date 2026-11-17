@@ -443,3 +443,5 @@ input[type='range']::-moz-range-thumb { width: 13px; height: 13px; border: 0; bo
 /* Iconos (Ionicons): heredan el color del texto */
 .icon { display: inline-block; flex-shrink: 0; line-height: 0; }
 .icon svg { width: 100%; height: 100%; display: block; fill: currentColor; }
+.logo { display: block; filter: drop-shadow(0 4px 10px rgb(255 77 125 / 0.35)); }
+.login-card .logo { filter: drop-shadow(0 10px 24px rgb(255 77 125 / 0.45)); }

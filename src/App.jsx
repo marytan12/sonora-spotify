@@ -61,18 +61,7 @@ function Login({ error }) {
 }
 
 export function Logo({ size = 28 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
-      <defs>
-        <linearGradient id="lg" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#ff8a5c" />
-          <stop offset="1" stopColor="#b84dff" />
-        </linearGradient>
-      </defs>
-      <rect width="64" height="64" rx="15" fill="url(#lg)" />
-      <path d="M14 38c6-14 14-14 18 0s12 14 18 0" stroke="#fff" strokeWidth="6" fill="none" strokeLinecap="round" />
-    </svg>
-  );
+  return <img className="logo" src="/favicon.svg" width={size} height={size} alt="" />;
 }
 
 const VIEWS = { home: Home, search: Search, library: Library, liked: Liked, playlist: Playlist, album: Album, artist: Artist, show: Show, profile: Profile };
