@@ -448,7 +448,7 @@ function Settings({ prefs, set, canvas, isTrack }) {
         ]}
       />
       <p className="opt-hint">
-        {!isTrack ? 'Solo las canciones tienen Canvas.' : canvas ? 'Esta canción tiene Canvas.' : 'Esta canción no tiene Canvas: se usa la portada.'}
+        {prefs.canvas === 'none' ? 'Canvas desactivado: se muestra la portada.' : !isTrack ? 'Solo las canciones tienen Canvas.' : canvas ? 'Esta canción tiene Canvas.' : 'Esta canción no tiene Canvas: se usa la portada.'}
       </p>
       {prefs.canvas === 'portrait' && (
         <Options
