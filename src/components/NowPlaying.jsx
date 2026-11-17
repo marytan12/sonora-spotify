@@ -19,7 +19,6 @@ export const DEFAULTS = {
   blur: 60, // desenfoque del fondo con portada
   canvasBlur: 12, // desenfoque del fondo con Canvas
   dim: 30, // oscurecer el fondo (0-80 %)
-  glassPanel: true, // panel lateral como tarjeta de cristal (tema cristal líquido)
   lyrics: 'side', // side | cover | line | none
   lyricSize: 'm', // s | m | l
   lyricAlign: 'left', // left | center
@@ -54,9 +53,9 @@ function sanitize(p) {
     n[k] = Number.isFinite(n[k]) ? Math.min(hi, Math.max(lo, n[k])) : DEFAULTS[k];
   }
   if (typeof n.accent !== 'string' || !(n.accent === 'auto' || /^#[0-9a-f]{6}$/i.test(n.accent))) n.accent = 'auto';
-  n.glassPanel = n.glassPanel !== false;
   n.autoHide = n.autoHide === true;
   delete n.anim;
+  delete n.glassPanel;
   return n;
 }
 
@@ -163,7 +162,6 @@ export default function NowPlaying({ onClose, clock }) {
     `lyr-${prefs.lyricSize}`,
     `lyr-align-${prefs.lyricAlign}`,
     `font-${prefs.font}`,
-    prefs.glassPanel ? 'glass-panel' : '',
     idle ? 'is-idle' : '',
     playback?.is_playing ? 'is-playing' : 'is-paused',
     portrait ? `portrait pos-${prefs.portraitPos}` : '',
@@ -475,7 +473,6 @@ function Settings({ prefs, set, canvas, isTrack }) {
           ['minimal', 'Minimal'],
         ]}
       />
-      {prefs.theme === 'liquid' && <Toggle label="Panel lateral de cristal" value={prefs.glassPanel} onChange={(glassPanel) => set({ glassPanel })} />}
       <Options label="Fuente" value={prefs.font} onChange={(font) => set({ font })} options={Object.entries(FONTS).map(([k, f]) => [k, f.label])} />
       <Options
         label="Forma de la portada"
