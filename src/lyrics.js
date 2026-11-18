@@ -171,14 +171,13 @@ const normName = (s = '') =>
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .trim();
-/** true si el artista de Spotify aparece entre los de NetEase (separados por comas) */
-function sameArtist(spotifyArtist, neteaseArtists) {
+/** true si el artista de Spotify es exactamente uno de los acreditados en NetEase (no basta con que
+ *  un nombre contenga al otro: «Air» no es «Air Supply») */
+function sameArtist(spotifyArtist, ne) {
   const a = normName(spotifyArtist);
   if (!a) return false;
-  return String(neteaseArtists || '')
-    .split(',')
-    .map(normName)
-    .some((x) => x && (x === a || x.includes(a) || a.includes(x)));
+  const credits = Array.isArray(ne.artists) ? ne.artists : String(ne.artist || '').split(',');
+  return credits.map(normName).includes(a);
 }
 async function fetchNetease(track, id) {
   const q = id
@@ -196,7 +195,7 @@ function neteaseResult(ne, source, secs, { maxDiff = 3, words = false, artist = 
   if (!ne) return null;
   const diff = ne.diff ?? (ne.duration && secs ? Math.abs(ne.duration / 1000 - secs) : null);
   if (source !== 'manual' && (diff == null || diff > maxDiff)) return null;
-  if (source !== 'manual' && !sameArtist(artist, ne.artist)) return null;
+  if (source !== 'manual' && !sameArtist(artist, ne)) return null;
   const meta = { id: `ne:${ne.id}`, provider: 'netease', source, name: ne.name, artist: ne.artist, diff, suspicious: source !== 'manual' && diff > 3 };
   if (ne.instrumental && !ne.lrc && !ne.yrc) return words ? null : { status: 'instrumental', meta };
   const yrc = ne.yrc ? parseYrc(ne.yrc) : [];
