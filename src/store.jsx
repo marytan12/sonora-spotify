@@ -41,18 +41,17 @@ export function AppProvider({ children }) {
   const playbackRef = useRef(null);
   const queueRef = useRef([]);
   const historyRef = useRef([]);
-  const expectRef = useRef(null); // { uri, playing, until }: cambio optimista pendiente de confirmar
   const retryRef = useRef(null);
   const lastItemRef = useRef(null); // última canción vista (para el historial)
-  // Cambios optimistas pendientes de confirmar, del más antiguo al más reciente. Cada uno guarda
-  // el estado (reproducción, cola, historial) justo antes de aplicarse, para deshacerlo en local
-  // aunque Spotify no responda: { tx, snap, expect, auto, failed }
-  const pendingRef = useRef([]);
-  const failTxRef = useRef(() => {});
-  const expireRef = useRef(null); // temporizador que da por fallido el último cambio si no se confirma
+  // ---- Interfaz optimista: lo que se ve = estado base confirmado + operaciones pendientes ----
+  // Cada orden (siguiente, pausa, buscar…) es una operación que se aplica encima del estado base.
+  // Si una falla, se quita solo esa y se recalcula el resto: el orden en que fallen da igual.
+  const baseRef = useRef(null); // { playback, queue, history, last, consumed } antes de la 1.ª operación
+  const opsRef = useRef([]); // [{ tx, apply, expect, auto, fromUri, accepted, timer }]
+  const removeOpRef = useRef(() => {});
   const rolledBackRef = useRef(null); // canción cuyo paso automático a la siguiente se deshizo
   const consumedRef = useRef(null); // canción que «Siguiente» ya sacó de la cola local
-  const txRef = useRef(0); // identificador de cada cambio optimista
+  const txRef = useRef(0); // identificador de cada operación
   playbackRef.current = playback;
   queueRef.current = queue;
   historyRef.current = history;
@@ -100,13 +99,50 @@ export function AppProvider({ children }) {
     }
   }, [fail]);
 
+  /** Estado local completo que se ve ahora mismo */
+  const currentLocal = () => ({
+    playback: playbackRef.current,
+    queue: queueRef.current,
+    history: historyRef.current,
+    last: lastItemRef.current,
+    consumed: consumedRef.current,
+  });
+
+  /** Muestra un estado local completo (y actualiza las refs al momento para la siguiente orden) */
+  const commit = useCallback((st) => {
+    playbackRef.current = st.playback;
+    queueRef.current = st.queue;
+    historyRef.current = st.history;
+    lastItemRef.current = st.last;
+    consumedRef.current = st.consumed;
+    setPlayback(st.playback);
+    setQueue(st.queue);
+    setHistory(st.history);
+  }, []);
+
+  /** Vuelve a calcular lo que se ve: estado base + operaciones que siguen vivas */
+  const recompute = useCallback(() => {
+    const base = baseRef.current;
+    if (!base) return;
+    commit(opsRef.current.reduce((acc, op) => op.apply(acc), base));
+    if (!opsRef.current.length) baseRef.current = null;
+  }, [commit]);
+
+  const clearOps = () => {
+    opsRef.current.forEach((o) => clearTimeout(o.timer));
+    opsRef.current = [];
+    baseRef.current = null;
+  };
+
+  const refreshQueueRef = useRef(() => {});
+
   const refreshPlayback = useCallback(async () => {
     try {
       const st = await sp.playback();
-      // Si hay un cambio optimista (siguiente, pausa…) se ignoran las respuestas que aún no lo
-      // reflejan: así la interfaz no "rebota" a la canción o estado anteriores
-      const e = expectRef.current;
-      if (e) {
+      const ops = opsRef.current;
+      if (ops.length) {
+        // Mientras la última orden no se refleje, se ignoran respuestas antiguas para no "rebotar"
+        const e = ops[ops.length - 1].expect;
         const matches =
           (!e.uri || st?.item?.uri === e.uri) &&
           (e.playing === undefined || st?.is_playing === e.playing) &&
@@ -117,84 +153,91 @@ export function AppProvider({ children }) {
           retryRef.current = setTimeout(refreshPlayback, 700);
           return;
         }
-        // Confirmado: el cambio más reciente (y lo anterior) se da por bueno. Vencido: se deshace,
-        // salvo que Spotify ya hubiera aceptado la orden (entonces manda el estado real recibido)
-        const entry = pendingRef.current.find((x) => x.tx === e.tx);
         if (matches) rolledBackRef.current = null;
-        else if (!entry?.accepted) failTxRef.current(e.tx);
+        else {
+          // Vencido sin confirmar: se descartan las operaciones que Spotify no llegó a aceptar
+          for (const o of ops) if (!o.accepted && o.auto) rolledBackRef.current = o.fromUri;
+          opsRef.current = ops.filter((o) => o.accepted);
+          recompute();
+        }
+        clearOps();
+        // A partir de aquí manda el estado real; la cola también se vuelve a pedir
+        setTimeout(() => refreshQueueRef.current(), 0);
       }
-      // Con un estado real recibido, ya no queda nada pendiente de deshacer
-      pendingRef.current = [];
-      expectRef.current = null;
-      clearTimeout(expireRef.current);
-      setPlayback(st ? { ...st, fetchedAt: Date.now() } : null);
+      const real = st ? { ...st, fetchedAt: Date.now() } : null;
+      playbackRef.current = real;
+      setPlayback(real);
     } catch {
       /* silencioso */
     }
-  }, []);
+  }, [recompute]);
 
-  /** Espera la confirmación de `entry`; si vence su plazo, se da por fallido */
-  const arm = useCallback((entry) => {
-    expectRef.current = entry.expect;
-    clearTimeout(expireRef.current);
-    expireRef.current = setTimeout(() => {
-      if (expectRef.current !== entry.expect) return;
-      expectRef.current = null;
-      // Si Spotify respondió OK a la orden, el cambio se mantiene aunque no lleguen consultas
-      if (!entry.accepted) failTxRef.current(entry.tx);
-    }, Math.max(0, entry.expect.until - Date.now()) + 250);
-  }, []);
-
-  /** Aplica un cambio en la interfaz antes de que Spotify lo confirme. Devuelve su identificador.
-   *  Se deshace si su orden falla, o si vence el plazo sin que Spotify haya aceptado la orden. */
-  const optimistic = useCallback(
-    (patch, expect, { auto = false } = {}) => {
+  /** Añade una operación optimista. `apply(estado) -> estado` debe poder reaplicarse sobre otra base.
+   *  Devuelve su identificador; se quita si su orden falla o si vence el plazo sin ser aceptada. */
+  const addOp = useCallback(
+    (apply, expect, { auto = false } = {}) => {
+      if (!opsRef.current.length) baseRef.current = currentLocal();
       const tx = ++txRef.current;
-      const entry = {
+      const op = {
         tx,
+        apply,
         auto,
-        failed: false,
+        fromUri: playbackRef.current?.item?.uri ?? null,
         accepted: false, // Spotify respondió OK a la orden
-        snap: {
-          playback: playbackRef.current,
-          queue: queueRef.current,
-          history: historyRef.current,
-          last: lastItemRef.current,
-          consumed: consumedRef.current,
-        },
-        expect: { ...expect, tx, until: Date.now() + EXPECT_MS },
+        expect: { ...expect, until: Date.now() + EXPECT_MS },
       };
-      pendingRef.current = [...pendingRef.current, entry];
-      setPlayback((pb) => (pb ? { ...pb, ...patch, fetchedAt: Date.now() } : pb));
-      arm(entry);
+      // Plazo propio: si Spotify no ha aceptado la orden a tiempo, se quita (aunque no lleguen consultas)
+      op.timer = setTimeout(() => !op.accepted && removeOpRef.current(tx), EXPECT_MS + 250);
+      opsRef.current = [...opsRef.current, op];
+      commit(apply(currentLocal()));
       return tx;
     },
-    [arm]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [commit]
   );
 
   /** Pasa a la siguiente canción de la cola sin esperar al sondeo */
   const advance = useCallback(
     ({ auto = false } = {}) => {
       const next = queueRef.current[0];
-      if (!next) return null;
-      const tx = optimistic({ item: next, progress_ms: 0, is_playing: true }, { uri: next.uri }, { auto });
-      setQueue((q) => q.slice(1));
-      consumedRef.current = next.uri; // ya salió de la cola: el recorte de abajo no debe repetirlo
-      return tx;
+      if (!next || !playbackRef.current?.item) return null;
+      const at = Date.now();
+      return addOp(
+        (st) => {
+          const cur = st.playback?.item;
+          const nx = st.queue[0];
+          if (!cur || !nx) return st;
+          return {
+            ...st,
+            playback: { ...st.playback, item: nx, progress_ms: 0, is_playing: true, fetchedAt: at },
+            queue: st.queue.slice(1),
+            history: [cur, ...st.history.filter((x) => x.uri !== cur.uri && x.uri !== nx.uri)].slice(0, 20),
+            last: nx,
+            consumed: nx.uri, // ya salió de la cola: el recorte automático no debe repetirlo
+          };
+        },
+        { uri: next.uri },
+        { auto }
+      );
     },
-    [optimistic]
+    [addOp]
   );
 
   // ---------- Cola: se pide al cambiar de canción y se precargan las siguientes ----------
   const itemUri = playback?.item?.uri;
   const refreshQueue = useCallback(async () => {
+    if (opsRef.current.length) return; // con operaciones pendientes, la cola la calcula la interfaz optimista
     try {
       const q = await sp.queue();
-      setQueue((q?.queue || []).filter(Boolean));
+      if (opsRef.current.length) return;
+      const list = (q?.queue || []).filter(Boolean);
+      queueRef.current = list;
+      setQueue(list);
     } catch {
-      /* no crítico */
+      /* no crítico: se mantiene la cola local */
     }
   }, []);
+  refreshQueueRef.current = refreshQueue;
   useEffect(() => {
     if (!itemUri) return;
     // Pequeña espera: justo tras un cambio, Spotify a veces devuelve aún la cola anterior
@@ -211,6 +254,7 @@ export function AppProvider({ children }) {
       consumedRef.current = null; // «Siguiente» ya la sacó de la cola
       return;
     }
+    consumedRef.current = null;
     setQueue((q) => (q[0]?.uri === itemUri ? q.slice(1) : q));
   }, [itemUri]);
 
@@ -340,37 +384,17 @@ export function AppProvider({ children }) {
     [refreshPlayback]
   );
 
-  // Un cambio optimista ha fallado (Spotify lo rechazó o no lo confirmó a tiempo).
-  // Si hay un cambio posterior aún vigente, ese manda y no se toca nada. Si es el último, se
-  // deshace él y cualquier anterior que también haya fallado, volviendo al estado previo a ellos.
-  failTxRef.current = (tx) => {
-    const list = pendingRef.current;
-    const entry = list.find((x) => x.tx === tx);
-    if (!entry) return;
-    entry.failed = true;
-    let undone = null;
-    let auto = false;
-    while (list.length && list[list.length - 1].failed) {
-      undone = list.pop();
-      auto ||= undone.auto;
-    }
-    if (!undone) return; // hay un cambio posterior vigente
-    const s = undone.snap;
-    setPlayback(s.playback);
-    setQueue(s.queue);
-    setHistory(s.history);
-    lastItemRef.current = s.last;
-    consumedRef.current = s.consumed;
-    // Solo si lo deshecho incluía el paso automático de fin de canción, no se repite para esta canción
-    if (auto) rolledBackRef.current = s.playback?.item?.uri ?? null;
-    // Se vuelve a esperar la confirmación del cambio anterior que siga pendiente (si lo hay)
-    const prev = list[list.length - 1];
-    if (prev) arm(prev);
-    else {
-      expectRef.current = null;
-      clearTimeout(expireRef.current);
-    }
-    // Después se intenta sincronizar con Spotify; si falla, se queda la copia restaurada
+  // Una operación ha fallado (Spotify rechazó su orden o no la aceptó a tiempo): se quita solo esa
+  // y lo que se ve se recalcula con las demás. Si no queda ninguna, se vuelve al estado base.
+  removeOpRef.current = (tx) => {
+    const op = opsRef.current.find((o) => o.tx === tx);
+    if (!op) return;
+    clearTimeout(op.timer);
+    opsRef.current = opsRef.current.filter((o) => o !== op);
+    // Si lo que falló es el paso automático de fin de canción, no se repite en bucle para esa canción
+    if (op.auto) rolledBackRef.current = op.fromUri;
+    recompute();
+    // Si ya no queda nada pendiente, se intenta sincronizar la cola con Spotify
     refreshQueue();
   };
 
@@ -379,13 +403,13 @@ export function AppProvider({ children }) {
     (fn, okMsg, tx = null) =>
       withDevice(fn)
         .then(() => {
-          const entry = tx != null && pendingRef.current.find((x) => x.tx === tx);
-          if (entry) entry.accepted = true;
+          const op = tx != null && opsRef.current.find((o) => o.tx === tx);
+          if (op) op.accepted = true;
           if (okMsg) toast(okMsg);
         })
         .catch((e) => {
-          // Si falla, se da por fallido solo el cambio optimista de esta misma orden
-          if (tx != null) failTxRef.current(tx);
+          // Si falla, se quita solo la operación optimista de esta misma orden
+          if (tx != null) removeOpRef.current(tx);
           refreshPlayback();
           fail(e);
         }),
@@ -400,7 +424,26 @@ export function AppProvider({ children }) {
       const pb = playbackRef.current;
       if (!pb?.item) return run((d) => sp.play({}, d));
       const playing = !pb.is_playing;
-      const tx = optimistic({ is_playing: playing, progress_ms: positionOf(pb) }, { uri: pb.item.uri, playing });
+      const at = Date.now();
+      // La posición se calcula sobre la canción que haya debajo en ese momento (por si cambia la base)
+      const tx = addOp(
+        (st) =>
+          st.playback
+            ? {
+                ...st,
+                playback: {
+                  ...st.playback,
+                  is_playing: playing,
+                  progress_ms: Math.min(
+                    st.playback.item?.duration_ms || 0,
+                    st.playback.progress_ms + (st.playback.is_playing ? at - st.playback.fetchedAt : 0)
+                  ),
+                  fetchedAt: at,
+                },
+              }
+            : st,
+        { playing }
+      );
       return run((d) => (playing ? sp.play({}, d) : sp.pause(d)), null, tx);
     },
     next: () => {
@@ -410,26 +453,40 @@ export function AppProvider({ children }) {
     previous: () => {
       const pb = playbackRef.current;
       // Con más de 3 s reproducidos, "Anterior" vuelve al principio de la canción (como Spotify)
-      if (pb?.item && positionOf(pb) > RESTART_MS) {
-        const tx = optimistic({ progress_ms: 0 }, { uri: pb.item.uri, pos: 0, at: Date.now() });
-        return run(() => sp.seek(0), null, tx);
-      }
+      if (pb?.item && positionOf(pb) > RESTART_MS) return actions.seek(0);
       const prev = pb?.item && historyRef.current.find((t) => t.uri !== pb.item.uri);
       let tx = null;
       if (prev) {
-        // Si Spotify lo rechaza o no lo confirma, failTxRef restaura reproducción, historial y cola
-        tx = optimistic({ item: prev, progress_ms: 0, is_playing: true }, { uri: prev.uri });
-        setQueue((q) => [pb.item, ...q]);
-        setHistory((h) => h.filter((t) => t.uri !== prev.uri));
-        lastItemRef.current = prev;
+        const at = Date.now();
+        tx = addOp(
+          (st) => {
+            const cur = st.playback?.item;
+            const pv = cur && st.history.find((t) => t.uri !== cur.uri);
+            if (!pv) return st;
+            return {
+              ...st,
+              playback: { ...st.playback, item: pv, progress_ms: 0, is_playing: true, fetchedAt: at },
+              queue: [cur, ...st.queue],
+              history: st.history.filter((t) => t.uri !== pv.uri),
+              last: pv,
+            };
+          },
+          { uri: prev.uri }
+        );
       }
       return run(() => sp.previous(), null, tx);
     },
     seek: (ms) => {
-      const pb = playbackRef.current;
       const pos = Math.round(ms);
+      const at = Date.now();
       // El estado global también se mueve: si no, el aviso de fin de canción saltaría a destiempo
-      const tx = pb?.item ? optimistic({ progress_ms: pos }, { uri: pb.item.uri, pos, at: Date.now() }) : null;
+      const tx = playbackRef.current?.item
+        ? addOp((st) => (st.playback ? { ...st, playback: { ...st.playback, progress_ms: pos, fetchedAt: at } } : st), {
+            uri: playbackRef.current.item.uri,
+            pos,
+            at,
+          })
+        : null;
       return run(() => sp.seek(pos), null, tx);
     },
     volume: (v) => run(() => sp.volume(Math.round(v))),
