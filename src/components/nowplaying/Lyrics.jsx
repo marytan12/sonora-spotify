@@ -1,19 +1,38 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useFrame } from '../../clock.js';
-import { lyricsCandidates, pickLyrics, retryLyrics, useLyrics } from '../../lyrics.js';
+import { getSongOffset, lyricsCandidates, neteaseCandidate, pickLyrics, retryLyrics, setSongOffset, useLyrics, useSongOffset } from '../../lyrics.js';
 import { Icon, Loading, fmt, useAsync } from '../ui.jsx';
 
 // ======================= LETRA =======================
 /** Parte una línea en palabras para rellenarlas una a una: un degradado sobre la línea
  *  entera se veía mal cuando la línea ocupa varias filas (todas se rellenaban a la vez). */
-function Words({ text }) {
-  if (!text) return '♪';
-  return text.split(' ').map((w, i) => (
+function Words({ line }) {
+  // Letra palabra a palabra: cada palabra con su propio tiempo
+  if (line.words?.length)
+    return line.words.map((w, i) => (
+      <span key={i} className="w">
+        {w.text}
+      </span>
+    ));
+  if (!line.text) return '♪';
+  return line.text.split(' ').map((w, i) => (
     <span key={i} className="w">
       {w}
       {' '}
     </span>
   ));
+}
+
+/** Relleno con los tiempos de cada palabra: cada una se llena mientras se canta */
+function fillTimed(el, words, t) {
+  const spans = el.querySelectorAll('.w');
+  if (spans.length !== words.length) return false;
+  words.forEach((w, k) => {
+    const p = Math.min(1, Math.max(0, (t - w.t) / Math.max(1, w.d)));
+    const v = `${(p * 100).toFixed(1)}%`;
+    if (spans[k].style.getPropertyValue('--wf') !== v) spans[k].style.setProperty('--wf', v);
+  });
+  return true;
 }
 
 function fillWords(el, f) {
@@ -31,7 +50,11 @@ function fillWords(el, f) {
   }
 }
 
-export default function Lyrics({ item, now, onSeek, variant }) {
+/**
+ * fill: 'word' rellena la frase actual palabra a palabra; 'line' la enciende entera; 'none', sin animación.
+ * lines: frases visibles con la letra sobre la portada (1 la actual, 2 actual y siguiente, 3 también la anterior).
+ */
+export default function Lyrics({ item, now, onSeek, variant, fill = 'word', lines: overlayLines = 3 }) {
   const lyr = useLyrics(item, true);
   const [active, setActive] = useState(-1);
   const box = useRef(null);
@@ -49,14 +72,15 @@ export default function Lyrics({ item, now, onSeek, variant }) {
     let i = -1;
     for (let k = 0; k < lines.length && lines[k].t <= t; k++) i = k;
     setActive((prev) => (prev === i ? prev : i));
-    const el = box.current?.querySelector('.line.now');
+    const el = fill === 'word' && box.current?.querySelector('.line.now');
     if (el && i >= 0) {
-      const end = lines[i + 1]?.t ?? item?.duration_ms ?? lines[i].t + 4000;
+      if (lines[i].words && fillTimed(el, lines[i].words, t)) return;
+      const end = lines[i].end ?? lines[i + 1]?.t ?? item?.duration_ms ?? lines[i].t + 4000;
       // El relleno termina un poco antes del cambio de línea para que se lea completo
       const span = Math.max(300, Math.min((end - lines[i].t) * 0.92, 7000));
       fillWords(el, Math.min(1, Math.max(0, (t - lines[i].t) / span)));
     }
-  }, [lines, now, item?.duration_ms]);
+  }, [lines, now, item?.duration_ms, fill]);
 
   const isList = variant === 'side' || variant === 'karaoke';
   const [fixing, setFixing] = useState(false);
@@ -101,9 +125,11 @@ export default function Lyrics({ item, now, onSeek, variant }) {
     const c = box.current;
     const el = c?.querySelector(`[data-i="${active}"]`);
     if (!c || !el) return;
-    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    c.scrollTo({ top: el.offsetTop - c.clientHeight * (variant === 'karaoke' ? 0.42 : 0.38), behavior: reduce ? 'auto' : 'smooth' });
-  }, [active, isList, variant, fixing]);
+    const instant = fill === 'none' || window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    c.scrollTo({ top: el.offsetTop - c.clientHeight * (variant === 'karaoke' ? 0.42 : 0.38), behavior: instant ? 'auto' : 'smooth' });
+  }, [active, isList, variant, fixing, fill]);
+  const nowText = (l) => (fill === 'word' ? <Words line={l} /> : l.text || '♪');
+  const songOffset = useSongOffset(item?.id);
 
   if (!item) return null;
   const msg =
@@ -111,14 +137,15 @@ export default function Lyrics({ item, now, onSeek, variant }) {
     : lyr.status === 'episode' ? 'Los podcasts no tienen letra.'
     : lyr.status === 'instrumental' ? 'Canción instrumental.'
     : lyr.status === 'error' ? 'No se ha podido cargar la letra ahora mismo.'
-    : lyr.status !== 'synced' && lyr.status !== 'plain' ? 'No hay letra para esta canción en LRCLIB.'
+    : lyr.status !== 'synced' && lyr.status !== 'plain' ? 'No se ha encontrado letra para esta canción (ni en LRCLIB ni en NetEase).'
     : null;
 
   if (!isList) {
-    // Letra sobre la portada: línea anterior, actual y siguiente (o solo la actual)
+    // Letra sobre la portada: anterior, actual y siguiente (según Ajustes), o solo la actual en «Una línea»
     if (!synced) return null;
-    const from = variant === 'line' ? active : Math.max(0, active - 1);
-    const to = variant === 'line' ? active : active + 1;
+    const n = variant === 'line' ? 1 : overlayLines;
+    const from = n >= 3 ? Math.max(0, active - 1) : active;
+    const to = n >= 2 ? active + 1 : active;
     return (
       <div className={`lyrics-overlay lo-${variant}`} ref={box} aria-live="polite">
         {active < 0 ? (
@@ -126,7 +153,7 @@ export default function Lyrics({ item, now, onSeek, variant }) {
         ) : (
           lines.slice(from, to + 1).map((l, k) => (
             <p key={from + k} className={`line ${from + k === active ? 'now' : ''}`}>
-              {from + k === active ? <Words text={l.text} /> : l.text || '♪'}
+              {from + k === active ? nowText(l) : l.text || '♪'}
             </p>
           ))
         )}
@@ -162,6 +189,7 @@ export default function Lyrics({ item, now, onSeek, variant }) {
           Puede que esta letra no sea de esta versión
         </button>
       )}
+      {synced && <SyncControl trackId={item.id} value={songOffset} />}
       <div className={`lyrics ${synced ? 'synced' : ''}`} ref={box}>
         {lyr.lines.map((l, i) =>
           synced ? (
@@ -171,7 +199,7 @@ export default function Lyrics({ item, now, onSeek, variant }) {
               className={`line ${i === active ? 'now' : i < active ? 'past' : ''}`}
               onClick={() => onSeek(l.t)}
             >
-              {i === active ? <Words text={l.text} /> : l.text || '♪'}
+              {i === active ? nowText(l) : l.text || '♪'}
             </button>
           ) : (
             <p key={i} className="line">
@@ -180,7 +208,8 @@ export default function Lyrics({ item, now, onSeek, variant }) {
           )
         )}
         <p className="lyrics-src">
-          Letra de LRCLIB
+          {lyr.meta?.provider === 'netease' ? 'Letra de NetEase Cloud Music' : 'Letra de LRCLIB'}
+          {lyr.meta?.words && ' · palabra a palabra'}
           {lyr.meta?.source === 'manual' && ' · elegida a mano'} ·{' '}
           <button className="lyrics-fix" onClick={() => setFixing(true)}>
             ¿No cuadra? Elegir otra
@@ -193,7 +222,8 @@ export default function Lyrics({ item, now, onSeek, variant }) {
 
 // Lista de letras alternativas de LRCLIB para cuando la automática no es la buena
 function LyricsPicker({ item, current, onDone }) {
-  const { data, loading, error } = useAsync(() => lyricsCandidates(item), [item.id]);
+  const { data, loading, error } = useAsync(() => lyricsCandidates(item).catch(() => []), [item.id]);
+  const ne = useAsync(() => neteaseCandidate(item), [item.id]);
   const secs = Math.round((item.duration_ms || 0) / 1000);
   const choose = (id) => {
     pickLyrics(item.id, id);
@@ -215,10 +245,33 @@ function LyricsPicker({ item, current, onDone }) {
           <Icon name="refresh" size={16} /> Volver a la letra automática
         </button>
       )}
+      {ne.data && (
+        <ul className="picker-ne">
+          <li>
+            <button className={current?.id === ne.data.id ? 'on' : ''} onClick={() => choose(ne.data.id)}>
+              <span className="pk-main">
+                <strong>{ne.data.name}</strong>
+                <span>
+                  {ne.data.artist} · NetEase Cloud Music
+                </span>
+              </span>
+              <span className="pk-tags">
+                <em className="ok">{ne.data.words ? 'Palabra a palabra' : 'Sincronizada'}</em>
+                {ne.data.diff != null && (
+                  <em className={ne.data.diff <= 2 ? 'ok' : ne.data.diff > 8 ? 'bad' : ''}>
+                    {ne.data.diff <= 2 ? 'Misma duración' : `±${Math.round(ne.data.diff)} s`}
+                  </em>
+                )}
+                {current?.id === ne.data.id && <Icon name="check" size={16} />}
+              </span>
+            </button>
+          </li>
+        </ul>
+      )}
       {loading ? (
         <Loading />
       ) : error || !data?.length ? (
-        <p className="lyrics-msg">No hay otras letras en LRCLIB para esta canción.</p>
+        <p className="lyrics-msg">{ne.data ? 'No hay más letras en LRCLIB para esta canción.' : 'No hay otras letras para esta canción.'}</p>
       ) : (
         <ul>
           {data.map((c) => {
@@ -248,6 +301,25 @@ function LyricsPicker({ item, current, onDone }) {
           })}
         </ul>
       )}
+    </div>
+  );
+}
+
+/** Ajuste fino de la sincronía de esta canción (se recuerda y se suma al general de Ajustes) */
+function SyncControl({ trackId, value }) {
+  const step = 250;
+  const label = value === 0 ? 'Sincronía' : `${value > 0 ? '+' : '−'}${(Math.abs(value) / 1000).toFixed(2).replace('.', ',')} s`;
+  return (
+    <div className={`lyrics-sync ${value ? 'is-set' : ''}`} role="group" aria-label="Sincronía de la letra en esta canción">
+      <button type="button" onClick={() => setSongOffset(trackId, getSongOffset(trackId) - step)} title="La letra va adelantada: retrasarla 0,25 s">
+        −
+      </button>
+      <button type="button" className="ls-value" onClick={() => setSongOffset(trackId, 0)} title={value ? 'Volver a la sincronía original' : 'Ajusta la sincronía si la letra no va con la voz'}>
+        {label}
+      </button>
+      <button type="button" onClick={() => setSongOffset(trackId, getSongOffset(trackId) + step)} title="La letra va atrasada: adelantarla 0,25 s">
+        +
+      </button>
     </div>
   );
 }

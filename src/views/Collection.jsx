@@ -316,7 +316,7 @@ export function Show() {
   const show = s.data;
   return (
     <div className="page">
-      <Header img={imgOf(show)} kind="Podcast" title={show.name} kind={show.publisher || 'Podcast'} meta={show.total_episodes ? <span>{show.total_episodes} episodios</span> : null}>
+      <Header img={imgOf(show)} title={show.name} kind={show.publisher || 'Podcast'} meta={show.total_episodes ? <span>{show.total_episodes} episodios</span> : null}>
         <p className="desc">{show.description}</p>
       </Header>
       <div className="actions-row">

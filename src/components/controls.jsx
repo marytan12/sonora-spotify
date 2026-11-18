@@ -59,24 +59,31 @@ export function Transport({ large }) {
   );
 }
 
+// Último volumen audible, para volver a él al quitar el silencio (botón o atajo de teclado)
+let lastAudible = 60;
+export function toggleMute(volume, actions) {
+  if (volume > 0) {
+    lastAudible = volume;
+    actions.volume(0);
+  } else actions.volume(lastAudible || 60);
+}
+
 export function Volume() {
-  const { playback, actions } = useApp();
-  const [vol, setVol] = useState(null);
-  const [last, setLast] = useState(60);
-  const volume = vol ?? playback?.device?.volume_percent ?? 60;
+  const { playback, actions, volumeNow } = useApp();
+  const [vol, setVol] = useState(null); // mientras se arrastra el control
+  const volume = vol ?? volumeNow ?? 60;
   useEffect(() => {
     // Cuando Spotify confirma el volumen, deja de usar el valor local
     if (vol !== null && playback?.device?.volume_percent === vol) setVol(null);
   }, [playback?.device?.volume_percent, vol]);
-  const toggleMute = () => {
-    const v = volume > 0 ? 0 : last;
-    if (volume > 0) setLast(volume);
-    setVol(v);
-    actions.volume(v);
+  const release = () => {
+    if (vol === null) return;
+    actions.volume(vol);
+    setVol(null);
   };
   return (
     <div className="volume">
-      <button className="icon-btn" onClick={toggleMute} title={volume > 0 ? 'Silenciar' : 'Activar sonido'}>
+      <button className="icon-btn" onClick={() => toggleMute(volume, actions)} title={volume > 0 ? 'Silenciar' : 'Activar sonido'}>
         <Icon name={volume > 0 ? 'volume' : 'mute'} size={18} />
       </button>
       <input
@@ -86,8 +93,8 @@ export function Volume() {
         value={volume}
         style={{ '--p': `${volume}%` }}
         onChange={(e) => setVol(Number(e.target.value))}
-        onPointerUp={() => vol !== null && actions.volume(vol)}
-        onKeyUp={() => vol !== null && actions.volume(vol)}
+        onPointerUp={release}
+        onKeyUp={release}
         aria-label="Volumen"
       />
     </div>

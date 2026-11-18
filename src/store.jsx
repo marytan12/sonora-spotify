@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { prefetchQueue, prefetchTrack } from './prefetch.js';
+import { readSettings } from './settings.js';
 import { getToken, sp } from './spotify.js';
 
 const POLL_MS = 3000; // sondeo del estado de reproducción con la pestaña visible
@@ -40,7 +41,9 @@ export const useApp = () => useContext(Ctx);
 
 // ---------- Router mínimo basado en hash: #/album/ID ----------
 function parseHash() {
-  const [name = 'home', id = null, extra = null] = window.location.hash.replace(/^#\/?/, '').split('/');
+  // Sin ruta (al abrir la app), se va a la sección de inicio elegida en Ajustes
+  const raw = window.location.hash.replace(/^#\/?/, '') || readSettings().startPage;
+  const [name = 'home', id = null, extra = null] = raw.split('/');
   return { name: name || 'home', id: id && decodeURIComponent(id), extra: extra && decodeURIComponent(extra) };
 }
 export const go = (name, id, extra) => {
@@ -60,6 +63,11 @@ export function AppProvider({ children }) {
   const [addTarget, setAddTarget] = useState(null); // uris para el modal "Añadir a playlist"
   const [queue, setQueue] = useState([]); // próximas canciones (de Spotify)
   const [history, setHistory] = useState([]); // canciones ya escuchadas en esta sesión (la última primero)
+  // Volumen pedido que Spotify aún no ha confirmado (para que la barra responda al instante)
+  const [pendingVolume, setPendingVolume] = useState(null);
+  const fadeRef = useRef(0); // subida suave de volumen en curso (se cancela al cambiar el volumen a mano)
+  const sdkStateRef = useRef(null); // { uri, name, dur, pos, at, playing } del reproductor de este navegador
+  const startVolumeRef = useRef(false); // el volumen al abrir la app ya se ha aplicado
   const playerRef = useRef(null);
   const sdkIdRef = useRef(null);
   const playbackRef = useRef(null);
@@ -167,7 +175,11 @@ export function AppProvider({ children }) {
   const refreshPlayback = useCallback(async () => {
     const seq = ++pollSeqRef.current;
     try {
+      const sent = Date.now();
       const st = await sp.playback();
+      // La posición que da Spotify es la del momento en que la calculó (a mitad del viaje de ida y
+      // vuelta), no la de cuando llega la respuesta: sin esto, la letra iba siempre algo retrasada
+      const fetchedAt = Date.now() - Math.min((Date.now() - sent) / 2, 400);
       if (seq < appliedSeqRef.current) return; // respuesta atrasada: ya se aplicó una más reciente
       const ops = opsRef.current;
       if (ops.length) {
@@ -196,7 +208,7 @@ export function AppProvider({ children }) {
         // «Siguiente» sin respuesta (o rechazado más tarde) no se queda comido en la cola
         const kept = ops.filter((o) => !o.track || o.accepted);
         const candidate = kept.reduce(applyOp, baseRef.current);
-        const real = st ? { ...st, fetchedAt: Date.now() } : null;
+        const real = st ? { ...st, fetchedAt } : null;
         const local = reconcile(candidate, real?.item, playbackRef.current?.item?.uri);
         clearOps();
         appliedSeqRef.current = seq;
@@ -204,7 +216,7 @@ export function AppProvider({ children }) {
         setTimeout(() => refreshQueueRef.current(), 0);
         return;
       }
-      const real = st ? { ...st, fetchedAt: Date.now() } : null;
+      const real = st ? { ...st, fetchedAt } : null;
       appliedSeqRef.current = seq;
       playbackRef.current = real;
       setPlayback(real);
@@ -391,20 +403,57 @@ export function AppProvider({ children }) {
     };
   }, [refreshPlayback, refreshQueue]);
 
+  // ---------- Reloj fino del reproductor de este navegador ----------
+  // Cuando suena aquí, la posición sale del propio reproductor (sin la latencia de la API): la
+  // letra va mucho más pegada a la voz. `polled`: si viene de getCurrentState, solo vale con marca de tiempo.
+  const captureSdk = (s, polled) => {
+    const t = s?.track_window?.current_track;
+    if (!t) {
+      if (!polled) sdkStateRef.current = null;
+      return;
+    }
+    const stamped = Number.isFinite(s.timestamp) && Math.abs(Date.now() - s.timestamp) < 60_000;
+    if (polled && !stamped) return;
+    sdkStateRef.current = {
+      uri: t.uri,
+      linked: t.linked_from?.uri || null,
+      name: t.name,
+      dur: s.duration || t.duration_ms || 0,
+      pos: s.position || 0,
+      at: stamped ? s.timestamp : Date.now(),
+      playing: !s.paused,
+    };
+  };
+  useEffect(() => {
+    const t = setInterval(() => {
+      const pb = playbackRef.current;
+      if (!pb?.is_playing || !playerRef.current || pb.device?.id !== sdkIdRef.current || document.hidden) return;
+      playerRef.current.getCurrentState().then((s) => captureSdk(s, true)).catch(() => {});
+    }, 2000);
+    return () => clearInterval(t);
+  }, []);
+  /** Estado del reproductor local, solo si es el dispositivo que suena ahora */
+  const sdkClock = useRef({
+    read: () => (playbackRef.current?.device?.id && playbackRef.current.device.id === sdkIdRef.current ? sdkStateRef.current : null),
+  }).current;
+
   // ---------- Web Playback SDK: convierte el navegador en un dispositivo de Spotify ----------
   useEffect(() => {
     window.onSpotifyWebPlaybackSDKReady = () => {
       const player = new window.Spotify.Player({
         name: 'Sonora Web Player',
         getOAuthToken: (cb) => getToken().then(cb),
-        volume: 0.6,
+        volume: readSettings().startVolume >= 0 ? readSettings().startVolume / 100 : 0.6,
       });
       player.addListener('ready', ({ device_id }) => {
         sdkIdRef.current = device_id;
         setSdkDeviceId(device_id);
       });
       player.addListener('not_ready', () => setSdkDeviceId(null));
-      player.addListener('player_state_changed', () => setTimeout(refreshPlayback, 300));
+      player.addListener('player_state_changed', (s) => {
+        captureSdk(s, false);
+        setTimeout(refreshPlayback, 300);
+      });
       player.addListener('account_error', () => setSdkError('No se ha podido activar el reproductor de este navegador con esta cuenta.'));
       player.addListener('initialization_error', ({ message }) => setSdkError(message));
       player.addListener('authentication_error', ({ message }) => setSdkError(message));
@@ -468,13 +517,64 @@ export function AppProvider({ children }) {
     [withDevice, toast, fail, refreshPlayback]
   );
 
+  // ---------- Volumen: el que se ve, la subida suave al dar play y el volumen al abrir la app ----------
+  const volumeNow = pendingVolume?.v ?? playback?.device?.volume_percent ?? null;
+  const volumeNowRef = useRef(null);
+  volumeNowRef.current = volumeNow;
+  useEffect(() => {
+    if (!pendingVolume) return;
+    if (playback?.device?.volume_percent === pendingVolume.v) {
+      setPendingVolume(null);
+      return;
+    }
+    const t = setTimeout(() => setPendingVolume(null), Math.max(0, 4000 - (Date.now() - pendingVolume.at)));
+    return () => clearTimeout(t);
+  }, [pendingVolume, playback?.device?.volume_percent]);
+
+  /** true si suena en el reproductor de este navegador (ahí el volumen se cambia al instante, sin pedírselo a Spotify) */
+  const isLocalDevice = () => !!(playerRef.current && sdkIdRef.current && playbackRef.current?.device?.id === sdkIdRef.current);
+  const setVolumeQuiet = (v) => Promise.resolve(isLocalDevice() ? playerRef.current.setVolume(v / 100) : sp.volume(v)).catch(() => {});
+  /** Subida suave: si está activada y no está sonando nada, devuelve los pasos para envolver la orden de reproducir */
+  const fadeIn = () => {
+    const target = volumeNowRef.current;
+    if (!readSettings().fadeIn || playbackRef.current?.is_playing || target == null || target < 10) return null;
+    const id = ++fadeRef.current;
+    return {
+      before: () => setVolumeQuiet(4),
+      restore: () => fadeRef.current === id && setVolumeQuiet(target),
+      start: async () => {
+        // En este navegador va muy fina; en otros dispositivos, pocas órdenes espaciadas
+        const steps = isLocalDevice() ? 24 : 6;
+        for (let i = 1; i <= steps; i++) {
+          await new Promise((r) => setTimeout(r, 2800 / steps));
+          if (fadeRef.current !== id) return;
+          await setVolumeQuiet(Math.round(4 + ((target - 4) * i) / steps));
+        }
+      },
+    };
+  };
+  const fadePlay = (f, play) =>
+    f
+      ? async (d) => {
+          await f.before();
+          try {
+            const r = await play(d);
+            f.start();
+            return r;
+          } catch (e) {
+            f.restore();
+            throw e;
+          }
+        }
+      : play;
+
   const actions = {
     playContext: (context_uri, offsetUri) =>
-      run((d) => sp.play({ context_uri, offset: offsetUri ? { uri: offsetUri } : undefined }, d)),
-    playUris: (uris, index = 0) => run((d) => sp.play({ uris, offset: { position: index } }, d)),
+      run(fadePlay(fadeIn(), (d) => sp.play({ context_uri, offset: offsetUri ? { uri: offsetUri } : undefined }, d))),
+    playUris: (uris, index = 0) => run(fadePlay(fadeIn(), (d) => sp.play({ uris, offset: { position: index } }, d))),
     toggle: () => {
       const pb = playbackRef.current;
-      if (!pb?.item) return run((d) => sp.play({}, d));
+      if (!pb?.item) return run(fadePlay(fadeIn(), (d) => sp.play({}, d)));
       const playing = !pb.is_playing;
       const at = Date.now();
       // La posición se calcula sobre la canción que haya debajo en ese momento (por si cambia la base)
@@ -496,7 +596,7 @@ export function AppProvider({ children }) {
             : st,
         { playing }
       );
-      return run((d) => (playing ? sp.play({}, d) : sp.pause(d)), null, tx);
+      return run(playing ? fadePlay(fadeIn(), (d) => sp.play({}, d)) : (d) => sp.pause(d), null, tx);
     },
     next: () => {
       const tx = playbackRef.current?.repeat_state !== 'track' ? advance() : null;
@@ -542,7 +642,12 @@ export function AppProvider({ children }) {
         : null;
       return run(() => sp.seek(pos), null, tx);
     },
-    volume: (v) => run(() => sp.volume(Math.round(v))),
+    volume: (v) => {
+      const val = Math.max(0, Math.min(100, Math.round(v)));
+      fadeRef.current++; // un cambio a mano cancela la subida suave en curso
+      setPendingVolume({ v: val, at: Date.now() });
+      return run(() => sp.volume(val));
+    },
     shuffle: () => run(() => sp.shuffle(!playback?.shuffle_state)),
     repeat: () => {
       const order = ['off', 'context', 'track'];
@@ -574,6 +679,14 @@ export function AppProvider({ children }) {
   }, [item]);
   const actionsRef = useRef(actions);
   actionsRef.current = actions;
+  // Volumen al abrir la app: una sola vez, en cuanto se conoce el dispositivo que suena
+  const device = playback?.device;
+  useEffect(() => {
+    if (startVolumeRef.current || !device) return;
+    startVolumeRef.current = true;
+    const v = readSettings().startVolume;
+    if (v >= 0 && device.supports_volume !== false && device.volume_percent !== v) actionsRef.current.volume(v);
+  }, [device]);
   useEffect(() => {
     if (!('mediaSession' in navigator)) return;
     const handlers = {
@@ -637,6 +750,8 @@ export function AppProvider({ children }) {
     sdkDeviceId,
     sdkError,
     actions,
+    sdkClock,
+    volumeNow,
     queue,
     refreshQueue,
     previousItem,

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { readSettings } from '../settings.js';
 import { go, useApp } from '../store.jsx';
 import { Artists, Cover, Icon, fmt, imgOf } from './ui.jsx';
 
@@ -42,7 +43,12 @@ export default function TrackList({ tracks, contextUri, showAlbum = true, showCo
           <div
             key={t.uri + i}
             className={`tl-row ${isCurrent ? 'current' : ''} ${showAlbum ? '' : 'no-album'}`}
-            onDoubleClick={() => play(t, i)}
+            onDoubleClick={(e) => {
+              if (e.target.closest('button, a')) return;
+              // Doble clic: reproducir o añadir a la cola, según Ajustes
+              if (readSettings().dblClick === 'queue') actions.addToQueue(t.uri);
+              else play(t, i);
+            }}
           >
             <span className="tl-num">
               <span className="n">{isCurrent && playback?.is_playing ? '♪' : numbered ? i + 1 : '•'}</span>

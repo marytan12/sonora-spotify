@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { GLASS_OPTIONS, useGlassMode } from '../appearance.js';
 import TrackList from '../components/TrackList.jsx';
 import { ErrorBox, Icon, Loading, Shelf, imgOf, useAsync } from '../components/ui.jsx';
 import { logout, sp } from '../spotify.js';
@@ -35,7 +34,7 @@ export default function Profile() {
         </button>
       </div>
 
-      <GlassSetting />
+      <SettingsLink />
       <DesktopApp />
 
       <section className="shelf">
@@ -81,23 +80,14 @@ export default function Profile() {
   );
 }
 
-function GlassSetting() {
-  const { mode, systemReduced, setMode } = useGlassMode();
+function SettingsLink() {
   return (
-    <section className="appearance" aria-labelledby="glass-title">
-      <h2 id="glass-title">Cristal líquido</h2>
-      <p>
-        {systemReduced
-          ? 'Tu sistema tiene la transparencia reducida: en «Automático» el cristal se ve opaco. Elige «Siempre cristal» para verlo igualmente.'
-          : 'En «Automático» el cristal sigue la configuración de transparencia de tu sistema.'}
-      </p>
-      <div className="chips" role="radiogroup" aria-labelledby="glass-title">
-        {GLASS_OPTIONS.map(([v, l]) => (
-          <button key={v} type="button" role="radio" aria-checked={mode === v} className={`chip ${mode === v ? 'on' : ''}`} onClick={() => setMode(v)}>
-            {l}
-          </button>
-        ))}
-      </div>
+    <section className="appearance" aria-labelledby="settings-title">
+      <h2 id="settings-title">Personaliza Sonora</h2>
+      <p>Tema claro u oscuro, color de acento, tamaño del texto, cristal líquido, tu inicio, atajos de teclado y más.</p>
+      <a className="btn" href="#/ajustes">
+        <Icon name="settings" size={16} /> Abrir Ajustes
+      </a>
     </section>
   );
 }

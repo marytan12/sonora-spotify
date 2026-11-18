@@ -4,8 +4,10 @@ import { useGlassHighlight, useLiquidGlass } from './glass.js';
 import PlayerBar from './components/PlayerBar.jsx';
 import { AddToPlaylistModal, CreatePlaylistModal } from './components/Sidebar.jsx';
 import { Cover, Icon, imgOf } from './components/ui.jsx';
+import { hexRgb, useSettings } from './settings.js';
 import { REDIRECT_URI, handleCallback, isLoggedIn, login } from './spotify.js';
 import { AppProvider, useApp } from './store.jsx';
+import AppSettings from './views/AppSettings.jsx';
 import { Album, Artist, Playlist, Show } from './views/Collection.jsx';
 import Home from './views/Home.jsx';
 import Library, { Liked } from './views/Library.jsx';
@@ -66,7 +68,19 @@ export function Logo({ size = 28 }) {
   return <img className="logo" src="/favicon.svg" width={size} height={size} alt="" />;
 }
 
-const VIEWS = { home: Home, search: Search, library: Library, liked: Liked, playlist: Playlist, album: Album, artist: Artist, show: Show, profile: Profile, resumen: Summary };
+const VIEWS = {
+  home: Home,
+  search: Search,
+  library: Library,
+  liked: Liked,
+  playlist: Playlist,
+  album: Album,
+  artist: Artist,
+  show: Show,
+  profile: Profile,
+  resumen: Summary,
+  ajustes: AppSettings,
+};
 const NAV = [
   ['home', 'Escuchar', 'home'],
   ['search', 'Buscar', 'search'],
@@ -74,10 +88,13 @@ const NAV = [
   ['resumen', 'Resumen', 'sparkles'],
 ];
 
-/** true al bajar por la página (más de 80 px) y false al volver a subir, como la barra de iOS */
-function useCompactOnScroll() {
+/** true al bajar por la página (más de 80 px) y false al volver a subir, como la barra de iOS.
+ *  `mode` (Ajustes): 'scroll' así, 'always' siempre compacta, 'never' nunca */
+function useCompactOnScroll(mode) {
   const [compact, setCompact] = useState(false);
   useEffect(() => {
+    if (mode !== 'scroll') return setCompact(mode === 'always');
+    setCompact(false);
     let lastY = window.scrollY;
     const onScroll = () => {
       const y = window.scrollY;
@@ -87,15 +104,16 @@ function useCompactOnScroll() {
     };
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
-  }, []);
+  }, [mode]);
   return compact;
 }
 
 function Shell() {
   const { route, user, playback } = useApp();
+  const [settings] = useSettings();
   const navRef = useRef(null);
   const mobileRef = useRef(null);
-  const compact = useCompactOnScroll();
+  const compact = useCompactOnScroll(settings.nav);
   useLiquidGlass(navRef);
   useLiquidGlass(mobileRef);
   useGlassHighlight();
@@ -106,11 +124,13 @@ function Shell() {
   const [creating, setCreating] = useState(false);
   const View = VIEWS[route.name] || Home;
   const art = imgOf(playback?.item?.album || playback?.item, 'sm');
-  const ambient = useArtColor(art);
+  const songColor = useArtColor(art);
+  // Color de acento de toda la app: el de lo que suena o uno fijo elegido en Ajustes
+  const ambient = settings.accent === 'art' ? songColor || '110 90 170' : hexRgb(settings.accent);
   const active = route.name === 'liked' ? 'library' : route.name;
 
   return (
-    <div className="app" style={{ '--ambient': ambient || '110 90 170' }}>
+    <div className="app" style={{ '--ambient': ambient }}>
       <div className="ambient" aria-hidden="true" />
       <header ref={navRef} className={`topnav glass lg-track ${compact ? 'compact' : ''}`}>
         <a className="brand" href="#/home" aria-label="Sonora, inicio">
@@ -128,6 +148,9 @@ function Shell() {
           <button className="icon-btn round" title="Nueva playlist" onClick={() => setCreating(true)}>
             <Icon name="plus" size={20} />
           </button>
+          <a href="#/ajustes" className={`icon-btn round ${route.name === 'ajustes' ? 'on' : ''}`} title="Ajustes" aria-label="Ajustes">
+            <Icon name="settings" size={20} />
+          </a>
           <a href="#/profile" className="user-chip" title="Tu perfil" aria-label="Tu perfil">
             {user && imgOf(user) ? <Cover src={imgOf(user, 'sm')} round size={30} /> : <Icon name="user" />}
           </a>

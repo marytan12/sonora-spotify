@@ -2,12 +2,16 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useArtColor, useArtPalette, useCanvas } from '../../art.js';
 import { useLiquidGlass } from '../../glass.js';
 import { useTick } from '../../clock.js';
+import { useSongOffset } from '../../lyrics.js';
+import { readSettings } from '../../settings.js';
+import { comboOf, isTyping } from '../../shortcuts.js';
+import { sp } from '../../spotify.js';
 import { go, useApp } from '../../store.jsx';
 import { DeviceList, QueueList, Seek, Transport, Volume } from '../controls.jsx';
-import { Artists, Icon, imgOf } from '../ui.jsx';
+import { Artists, Icon, fmt, imgOf } from '../ui.jsx';
 import Credits from './Credits.jsx';
 import Lyrics from './Lyrics.jsx';
-import { FONTS, usePrefs } from './prefs.js';
+import { FONTS, LYRIC_WEIGHTS, usePrefs } from './prefs.js';
 import Settings from './Settings.jsx';
 
 /** Mantiene la capa anterior unos instantes para hacer un fundido al cambiar de canción */
@@ -20,8 +24,6 @@ function useLayers(key, ms = 800) {
   }, [key, ms]);
   return layers;
 }
-
-const isTyping = (el) => /^(input|textarea|select)$/i.test(el?.tagName) || el?.isContentEditable;
 
 /** true tras `ms` sin mover el ratón ni pulsar teclas (solo si `enabled`) */
 function useIdle(enabled, ms = 3000) {
@@ -45,6 +47,69 @@ function useIdle(enabled, ms = 3000) {
   return idle;
 }
 
+// Foto del artista para el fondo (una petición por artista y sesión)
+const artistImages = new Map();
+function useArtistImage(id) {
+  const [, force] = useState(0);
+  useEffect(() => {
+    if (!id || artistImages.has(id)) return;
+    artistImages.set(id, null);
+    sp.artist(id)
+      .then((a) => {
+        artistImages.set(id, imgOf(a) || null);
+        force((n) => n + 1);
+      })
+      .catch(() => artistImages.delete(id));
+  }, [id]);
+  return id ? artistImages.get(id) || null : null;
+}
+
+/** Modo reloj: la hora en grande, para dejar Sonora puesto en una pantalla */
+function ClockFace({ item }) {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  return (
+    <div className="np-clock" aria-hidden="true">
+      <time>{now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}</time>
+      <span className="np-clock-date">{now.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })}</span>
+      {item && (
+        <span className="np-clock-song">
+          {item.name} · {item.artists?.map((a) => a.name).join(', ') || item.show?.name}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** Diseño «Estudio»: datos de la canción */
+function Info({ item }) {
+  const { queue } = useApp();
+  const album = item.album;
+  const next = queue[0];
+  const rows = [
+    album?.name && ['Álbum', album.id ? <a href={`#/album/${album.id}`}>{album.name}</a> : album.name],
+    album?.release_date && ['Año', album.release_date.slice(0, 4)],
+    item.track_number && ['Pista', album?.total_tracks ? `${item.track_number} de ${album.total_tracks}` : item.track_number],
+    ['Duración', fmt(item.duration_ms)],
+    item.explicit && ['Contenido', 'Explícito'],
+    Number.isFinite(item.popularity) && ['Popularidad', `${item.popularity} / 100`],
+    next && ['A continuación', `${next.name} · ${next.artists?.map((a) => a.name).join(', ') || ''}`],
+  ].filter(Boolean);
+  return (
+    <dl className="np-info">
+      {rows.map(([k, v]) => (
+        <div key={k}>
+          <dt>{k}</dt>
+          <dd>{v}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 // ======================= VISTA =======================
 export default function NowPlaying({ onClose, clock }) {
   const { playback, actions, saved, toggleSaved, openAddToPlaylist } = useApp();
@@ -53,7 +118,9 @@ export default function NowPlaying({ onClose, clock }) {
   const isTrack = item?.type === 'track';
   const art = imgOf(item?.album || item);
   const color = useArtColor(art);
-  const palette = useArtPalette(prefs.breathe ? art : null);
+  // Los colores de la portada sirven para el fondo que respira y para el fondo degradado
+  const palette = useArtPalette(prefs.breathe || prefs.bg === 'gradient' ? art : null);
+  const breathing = prefs.breathe && !!palette;
   const [karaoke, setKaraoke] = useState(false);
   const canvasState = useCanvas(prefs.canvas !== 'none' && isTrack ? item.id : null);
   const canvas = canvasState.url;
@@ -65,25 +132,26 @@ export default function NowPlaying({ onClose, clock }) {
   useLiquidGlass(tabsRef, { bezel: 14, scale: 28 });
   // En karaoke las barras siempre se esconden en reposo; fuera, solo si el usuario lo activa
   const idle = useIdle((prefs.autoHide || karaoke) && !!playback?.is_playing && (karaoke || prefs.panel !== 'settings'));
-  // Reloj de la letra con el ajuste de sincronía del usuario
-  const offset = prefs.lyricOffset;
+  // Modo reloj: tras los minutos elegidos sin tocar nada (no en karaoke ni con los ajustes abiertos)
+  const clockOn = useIdle(prefs.clockAfter > 0 && !karaoke && prefs.panel !== 'settings', prefs.clockAfter * 60_000);
+  // Reloj de la letra: ajuste general de sincronía + el fino de esta canción
+  const offset = prefs.lyricOffset + useSongOffset(item?.id);
   const clockNow = clock.now;
   const lyricNow = useCallback(() => clockNow() + offset, [clockNow, offset]);
 
   const closeBtn = useRef(null);
-  const seekRef = useRef(null);
   const seek = (ms) => {
     const dur = item?.duration_ms || 0;
     const to = Math.max(0, Math.min(dur ? dur - 500 : ms, ms));
     clock.jump(to);
     actions.seek(to);
   };
-  seekRef.current = seek;
 
-  // Foco dentro de la vista al abrir y vuelta al elemento anterior al cerrar
+  // Foco dentro de la vista al abrir (en la propia vista, no en el botón de cerrar: así Espacio pausa
+  // en vez de cerrarla) y vuelta al elemento anterior al cerrar
   useEffect(() => {
     const prev = document.activeElement;
-    closeBtn.current?.focus({ preventScroll: true });
+    root.current?.focus({ preventScroll: true });
     document.body.style.overflow = 'hidden';
     return () => {
       document.body.style.overflow = '';
@@ -91,24 +159,23 @@ export default function NowPlaying({ onClose, clock }) {
     };
   }, []);
 
-  // Teclado: Esc cierra (o sale del karaoke), ←/→ retroceden o avanzan 10 s, F pantalla completa
+  // Teclado: Esc cierra (o sale del karaoke) y la tecla de pantalla completa de Ajustes (F) la alterna.
+  // El resto de atajos (avanzar, retroceder, volumen…) son los de toda la app (PlayerBar)
   useEffect(() => {
     const k = (e) => {
-      if (e.altKey || e.ctrlKey || e.metaKey || isTyping(e.target)) return;
-      if (e.key === 'Escape' && !document.fullscreenElement) {
+      if (isTyping(e.target)) return;
+      if (e.key === 'Escape' && !e.ctrlKey && !e.altKey && !e.metaKey && !document.fullscreenElement) {
         if (karaoke) setKaraoke(false);
         else onClose();
-      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      } else if (comboOf(e) === readSettings().keys.fullscreen) {
         e.preventDefault();
-        seekRef.current(clock.now() + (e.key === 'ArrowRight' ? 10_000 : -10_000));
-      } else if (e.key === 'f' || e.key === 'F') {
         if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
         else root.current?.requestFullscreen?.()?.catch(() => {});
       }
     };
     window.addEventListener('keydown', k);
     return () => window.removeEventListener('keydown', k);
-  }, [onClose, karaoke, clock]);
+  }, [onClose, karaoke]);
 
   // Si se sale de la pantalla completa (Esc del navegador, F11…), el karaoke también se cierra
   useEffect(() => {
@@ -129,31 +196,96 @@ export default function NowPlaying({ onClose, clock }) {
   const lyricSeek = (t) => seek(Math.max(0, t - offset));
   const album = isTrack ? item.album : null;
   const mainArtist = item?.artists?.find((a) => a.id);
+  const artistImg = useArtistImage(prefs.bg === 'artist' ? mainArtist?.id : null);
 
+  const layout = prefs.layout;
   const canvasCover = canvas && ['cover', 'both', 'portrait'].includes(prefs.canvas);
   const canvasBg = canvas && ['background', 'both'].includes(prefs.canvas);
-  const bgLayers = useLayers(canvasBg ? `v:${canvas}` : art ? `i:${art}` : null);
-  const portrait = canvas && prefs.canvas === 'portrait';
+  // Fondo: el Canvas manda si se ha pedido de fondo; si no, lo elegido en Ajustes
+  const bgKey = canvasBg
+    ? `v:${canvas}`
+    : prefs.bg === 'artist' && artistImg
+      ? `a:${artistImg}`
+      : prefs.bg === 'gradient' && art
+        ? `g:${art}`
+        : prefs.bg === 'solid' && art
+          ? `s:${art}`
+          : art
+            ? `i:${art}`
+            : null;
+  const bgLayers = useLayers(bgKey);
+  const portrait = canvas && prefs.canvas === 'portrait' && layout !== 'lyrics';
   const accent = prefs.accent === 'auto' ? (color ? `rgb(${color})` : '#fff') : prefs.accent;
-  const showSide = prefs.panel !== 'none' && !(portrait && prefs.portraitPos === 'center');
-  const sideIsLyrics = prefs.panel === 'lyrics';
+  // En «Solo letra» la letra ya es lo principal: el panel solo se abre para lo demás
+  const panel = layout === 'lyrics' && prefs.panel === 'lyrics' ? 'none' : prefs.panel;
+  const showSide = panel !== 'none' && !(portrait && prefs.portraitPos === 'center');
+  const sideIsLyrics = panel === 'lyrics';
+  const lyricFont = prefs.lyricFont !== 'same' ? FONTS[prefs.lyricFont]?.css : null;
+  const lyricProps = { fill: prefs.lyricFill, lines: prefs.coverLines };
 
   const cls = [
     'nowplaying',
+    `layout-${layout}`,
     `theme-${prefs.theme}`,
     `shape-${prefs.shape}`,
     `filter-${prefs.filter}`,
     `lyr-${prefs.lyricSize}`,
     `lyr-align-${prefs.lyricAlign}`,
+    `lyr-fill-${prefs.lyricFill}`,
+    `lyr-color-${prefs.lyricColor}`,
+    lyricFont ? 'lyr-font-custom' : '',
+    prefs.lyricWeight !== 'auto' ? 'lyr-weight-custom' : '',
     `font-${prefs.font}`,
+    `breathe-${prefs.breatheSpeed}`,
     idle ? 'is-idle' : '',
+    clockOn ? 'is-clock' : '',
     karaoke ? 'is-karaoke' : '',
-    palette ? 'breathe' : '',
+    breathing ? 'breathe' : '',
     ...prefs.hidden.map((k) => `hide-${k}`),
     playback?.is_playing ? 'is-playing' : 'is-paused',
     portrait ? `portrait pos-${prefs.portraitPos}` : '',
     showSide ? '' : 'no-side',
   ].join(' ');
+
+  const side = showSide && (
+    <section className={`np-side ${sideIsLyrics ? 'is-lyrics' : ''}`}>
+      {panel === 'lyrics' &&
+        (prefs.lyrics === 'side' || layout === 'stage' ? (
+          <Lyrics item={item} now={lyricNow} onSeek={lyricSeek} variant="side" {...lyricProps} />
+        ) : (
+          <p className="lyrics-msg">La letra se muestra sobre la portada. Cámbialo en Ajustes.</p>
+        ))}
+      {panel === 'queue' && <QueueList />}
+      {panel === 'devices' && <DeviceList />}
+      {panel === 'credits' && <Credits item={item} />}
+      {panel === 'settings' && (
+        <Settings prefs={prefs} set={set} canvas={canvas} canvasError={canvasState.error} onRetryCanvas={canvasState.retry} isTrack={isTrack} />
+      )}
+    </section>
+  );
+
+  const metaActions = (
+    <div className="np-meta-actions">
+      {isTrack && (
+        <button className={`icon-btn heart ${saved[item.uri] ? 'on' : ''}`} onClick={() => toggleSaved(item.uri)} title="Me gusta">
+          <Icon name={saved[item.uri] ? 'heart' : 'heartOutline'} size={20} />
+        </button>
+      )}
+      <button className="icon-btn" onClick={() => openAddToPlaylist([item.uri])} title="Añadir a una playlist">
+        <Icon name="plus" size={20} />
+      </button>
+      {album?.id && (
+        <button className="icon-btn" onClick={() => go('album', album.id)} title={`Ir al álbum: ${album.name}`}>
+          <Icon name="album" size={20} />
+        </button>
+      )}
+      {mainArtist && (
+        <button className="icon-btn" onClick={() => go('artist', mainArtist.id)} title={`Ir al artista: ${mainArtist.name}`}>
+          <Icon name="artist" size={20} />
+        </button>
+      )}
+    </div>
+  );
 
   return (
     <div
@@ -165,19 +297,28 @@ export default function NowPlaying({ onClose, clock }) {
         '--blur': `${canvasBg ? prefs.canvasBlur : prefs.blur}px`,
         '--dim': prefs.dim / 100,
         '--np-font': FONTS[prefs.font]?.css,
+        ...(lyricFont && { '--lyr-font': lyricFont }),
+        ...(prefs.lyricWeight !== 'auto' && { '--lyr-weight': LYRIC_WEIGHTS[prefs.lyricWeight] }),
         ...(palette && { '--c1': palette[0], '--c2': palette[1], '--c3': palette[2] }),
       }}
       role="dialog"
       aria-modal="true"
       aria-label="Sonando ahora"
+      tabIndex={-1}
     >
       <div className="np-bg" aria-hidden="true">
         {bgLayers.map((k) => (
-          <div key={k} className="np-bg-layer">
-            {k.startsWith('v:') ? <video src={k.slice(2)} autoPlay loop muted playsInline /> : <img src={k.slice(2)} alt="" />}
+          <div key={k} className={`np-bg-layer is-${k[0]}`}>
+            {k.startsWith('v:') ? (
+              <video src={k.slice(2)} autoPlay loop muted playsInline />
+            ) : k.startsWith('g:') || k.startsWith('s:') ? (
+              <div className="np-bg-fill" />
+            ) : (
+              <img src={k.slice(2)} alt="" />
+            )}
           </div>
         ))}
-        {palette && <div className="np-breath" />}
+        {breathing && <div className="np-breath" />}
       </div>
 
       <header className="np-top">
@@ -203,7 +344,7 @@ export default function NowPlaying({ onClose, clock }) {
 
       {karaoke && isTrack && (
         <div className="np-karaoke">
-          <Lyrics item={item} now={lyricNow} onSeek={lyricSeek} variant="karaoke" />
+          <Lyrics item={item} now={lyricNow} onSeek={lyricSeek} variant="karaoke" {...lyricProps} />
           <footer className="karaoke-foot">
             <button className="play-btn" onClick={actions.toggle} title={playback?.is_playing ? 'Pausar' : 'Reproducir'}>
               <Icon name={playback?.is_playing ? 'pause' : 'play'} size={22} />
@@ -230,86 +371,81 @@ export default function NowPlaying({ onClose, clock }) {
         </div>
       )}
 
-      <div className="np-body">
-        <section className="np-main">
-          <div className="np-stage">
-            <div className={`np-artwork ${canvasCover ? 'has-canvas' : ''}`}>
-              <div className="np-artwork-inner">
-                {canvasCover ? (
-                  <video key={canvas} className="np-fade" src={canvas} autoPlay loop muted playsInline poster={art} />
-                ) : art ? (
-                  <img key={art} className="np-fade" src={art} alt={item?.album?.name || item?.name || ''} />
-                ) : (
-                  <div className="cover placeholder">
-                    <Icon name="music" size={64} />
-                  </div>
-                )}
-                {/* Dentro del marco: el recorte de la portada (redondeada, cuadrada o circular) se aplica también a la letra */}
-                {isTrack && (prefs.lyrics === 'cover' || prefs.lyrics === 'line') && (
-                  <Lyrics item={item} now={lyricNow} onSeek={seek} variant={prefs.lyrics} />
-                )}
-              </div>
-            </div>
-          </div>
-
-          {item ? (
-            <div className="np-controls">
-              <div className="np-meta">
+      {layout === 'lyrics' ? (
+        // ---- Solo letra: la letra a toda la pantalla y una barra de controles compacta ----
+        <div className="np-body np-body-lyrics">
+          <div className="np-lyrics-main">
+            {isTrack ? (
+              <Lyrics item={item} now={lyricNow} onSeek={lyricSeek} variant="karaoke" {...lyricProps} />
+            ) : (
+              <p className="lyrics-msg">{item ? 'Los podcasts no tienen letra.' : 'Pon algo a sonar desde Spotify o desde Sonora.'}</p>
+            )}
+            {item && (
+              <footer className="np-mini">
+                {art ? <img className="np-mini-art" src={art} alt="" /> : <span className="np-mini-art" />}
                 <div className="np-titles">
                   <h2 title={item.name}>{item.name}</h2>
                   <p>{item.artists ? <Artists artists={item.artists} /> : item.show?.name}</p>
                 </div>
-                <div className="np-meta-actions">
-                  {isTrack && (
-                    <button className={`icon-btn heart ${saved[item.uri] ? 'on' : ''}`} onClick={() => toggleSaved(item.uri)} title="Me gusta">
-                      <Icon name={saved[item.uri] ? 'heart' : 'heartOutline'} size={20} />
-                    </button>
+                <Transport />
+                <Seek progress={progress} duration={item.duration_ms} onSeek={seek} />
+                {metaActions}
+              </footer>
+            )}
+          </div>
+          {side}
+        </div>
+      ) : (
+        <div className="np-body">
+          <section className="np-main">
+            <div className="np-stage">
+              <div className={`np-artwork ${canvasCover ? 'has-canvas' : ''}`}>
+                <div className="np-artwork-inner">
+                  {canvasCover ? (
+                    <video key={canvas} className="np-fade" src={canvas} autoPlay loop muted playsInline poster={art} />
+                  ) : art ? (
+                    <img key={art} className="np-fade" src={art} alt={item?.album?.name || item?.name || ''} />
+                  ) : (
+                    <div className="cover placeholder">
+                      <Icon name="music" size={64} />
+                    </div>
                   )}
-                  <button className="icon-btn" onClick={() => openAddToPlaylist([item.uri])} title="Añadir a una playlist">
-                    <Icon name="plus" size={20} />
-                  </button>
-                  {album?.id && (
-                    <button className="icon-btn" onClick={() => go('album', album.id)} title={`Ir al álbum: ${album.name}`}>
-                      <Icon name="album" size={20} />
-                    </button>
-                  )}
-                  {mainArtist && (
-                    <button className="icon-btn" onClick={() => go('artist', mainArtist.id)} title={`Ir al artista: ${mainArtist.name}`}>
-                      <Icon name="artist" size={20} />
-                    </button>
+                  {/* Dentro del marco: el recorte de la portada (redondeada, cuadrada o circular) se aplica también a la letra */}
+                  {isTrack && (prefs.lyrics === 'cover' || prefs.lyrics === 'line') && (
+                    <Lyrics item={item} now={lyricNow} onSeek={seek} variant={prefs.lyrics} {...lyricProps} />
                   )}
                 </div>
               </div>
-              <Seek progress={progress} duration={item.duration_ms} onSeek={seek} />
-              <Transport large />
-              <Volume />
             </div>
-          ) : (
-            <p className="np-empty">Pon algo a sonar desde Spotify o desde Sonora.</p>
-          )}
-        </section>
 
-        {showSide && (
-          <section className={`np-side ${sideIsLyrics ? 'is-lyrics' : ''}`}>
-            {prefs.panel === 'lyrics' &&
-              (prefs.lyrics === 'side' ? (
-                <Lyrics item={item} now={lyricNow} onSeek={lyricSeek} variant="side" />
-              ) : (
-                <p className="lyrics-msg">La letra se muestra sobre la portada. Cámbialo en Ajustes.</p>
-              ))}
-            {prefs.panel === 'queue' && <QueueList />}
-            {prefs.panel === 'devices' && <DeviceList />}
-            {prefs.panel === 'credits' && <Credits item={item} />}
-            {prefs.panel === 'settings' && (
-              <Settings prefs={prefs} set={set} canvas={canvas} canvasError={canvasState.error} onRetryCanvas={canvasState.retry} isTrack={isTrack} />
+            {item ? (
+              <div className="np-controls">
+                <div className="np-meta">
+                  <div className="np-titles">
+                    <h2 title={item.name}>{item.name}</h2>
+                    <p>{item.artists ? <Artists artists={item.artists} /> : item.show?.name}</p>
+                  </div>
+                  {metaActions}
+                </div>
+                {layout === 'studio' && <Info item={item} />}
+                <Seek progress={progress} duration={item.duration_ms} onSeek={seek} />
+                <Transport large />
+                <Volume />
+              </div>
+            ) : (
+              <p className="np-empty">Pon algo a sonar desde Spotify o desde Sonora.</p>
             )}
           </section>
-        )}
-      </div>
+
+          {side}
+        </div>
+      )}
+
+      {clockOn && <ClockFace item={item} />}
 
       <nav ref={tabsRef} className="np-tabs lg-track" aria-label="Panel lateral">
         {[
-          ['lyrics', 'Letra', 'lyrics'],
+          ['lyrics', layout === 'lyrics' ? 'Solo letra' : 'Letra', 'lyrics'],
           ['queue', 'Cola', 'queue'],
           ['devices', 'Dispositivos', 'devices'],
           ['credits', 'Créditos', 'info'],

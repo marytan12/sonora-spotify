@@ -298,3 +298,134 @@
 @media (max-width: 1000px) {
   .np-body { grid-auto-rows: max-content; }
 }
+
+/* =========================================================
+   Personalización de «Sonando ahora»: diseños, fondos, modo
+   reloj, estilos de letra y preajustes.
+   ========================================================= */
+/* Grupos y preajustes del panel de ajustes */
+.np-settings .opt-group { margin: 10px 0 -6px; font-size: 0.74rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: rgb(255 255 255 / 0.45); }
+.preset-mine { display: inline-flex; align-items: center; border-radius: 999px; background: rgb(255 255 255 / 0.1); box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.15); transition: background 0.15s; }
+.preset-mine:hover { background: rgb(255 255 255 / 0.18); }
+.opt-row .preset-mine > button { background: none; box-shadow: none; }
+.opt-row .preset-mine > button:first-child { padding-right: 4px; }
+.opt-row .preset-mine .preset-del { padding: 7px 10px 7px 6px; color: rgb(255 255 255 / 0.55); display: grid; place-items: center; }
+.opt-row .preset-mine .preset-del:hover { color: #fff; background: none; }
+.preset-save { display: flex; gap: 8px; flex-wrap: wrap; }
+.preset-save .input { flex: 1; min-width: 160px; padding: 8px 14px; border-radius: 999px; font-size: 0.86rem; }
+.preset-save .btn { padding: 8px 14px; font-size: 0.84rem; }
+
+/* ---------- Fondos ---------- */
+/* Foto del artista: menos desenfoque para que se reconozca */
+.np-bg-layer.is-a img { filter: blur(calc(var(--blur) * 0.3)) saturate(1.15) brightness(0.6); object-position: center 25%; }
+.np-bg-fill { position: absolute; inset: 0; }
+.np-bg-layer.is-g .np-bg-fill { background: linear-gradient(135deg, var(--c1), var(--c2) 52%, var(--c3)); filter: brightness(0.72) saturate(1.2); }
+.np-bg-layer.is-s .np-bg-fill { background: rgb(var(--art)); filter: brightness(0.55) saturate(1.1); }
+/* Velocidad del fondo que respira */
+.breathe-slow .np-breath { animation-duration: 56s; }
+.breathe-fast .np-breath { animation-duration: 11s; }
+
+/* ---------- Letra: resaltado, fuente, grosor y color ---------- */
+.lyr-fill-line :is(.lyrics.synced, .lyrics-overlay) .line.now,
+.lyr-fill-none :is(.lyrics.synced, .lyrics-overlay) .line.now { color: #fff; }
+.lyr-fill-none .lyrics.synced .line, .lyr-fill-none .lyrics-overlay .line { transition: none; }
+.lyr-fill-none .lyrics.synced .line.now { transform: none; }
+.lyr-color-accent { --lyr-hi: color-mix(in srgb, var(--accent) 72%, #fff); }
+.lyr-color-accent .line.now .w { background-image: linear-gradient(90deg, var(--lyr-hi) var(--wf, 0%), rgb(255 255 255 / 0.42) calc(var(--wf, 0%) + 2px)); }
+.lyr-color-accent:is(.lyr-fill-line, .lyr-fill-none) :is(.lyrics.synced, .lyrics-overlay) .line.now { color: var(--lyr-hi); }
+.lyr-font-custom :is(.lyrics, .lyrics-overlay) .line { font-family: var(--lyr-font); }
+.lyr-weight-custom :is(.lyrics, .lyrics-overlay) .line { font-weight: var(--lyr-weight); }
+.font-rounded .np-titles h2 { font-weight: 800; }
+.font-serif .np-titles h2 { font-weight: 700; letter-spacing: -0.01em; }
+.font-mono .np-titles h2 { letter-spacing: -0.03em; }
+
+/* ---------- Diseño «Portada grande»: la portada centrada y enorme; el panel flota encima ---------- */
+.layout-stage { --col: clamp(260px, min(600px, calc(100vh - 330px)), 600px); }
+.layout-stage .np-body, .layout-stage.portrait .np-body { grid-template-columns: var(--col); }
+.layout-stage.portrait .np-body { grid-template-columns: auto; }
+.layout-stage .np-main { gap: 20px; }
+:is(.layout-stage, .layout-lyrics) .np-side {
+  position: absolute; z-index: 4; top: 0; bottom: 8px; right: var(--gutter); width: min(420px, calc(100vw - 2 * var(--gutter)));
+  max-height: none; padding: 18px 16px; border-radius: 26px; overflow-y: auto;
+  background: rgb(20 20 26 / 0.62); backdrop-filter: blur(30px) saturate(160%); -webkit-backdrop-filter: blur(30px) saturate(160%);
+  box-shadow: inset 1px 1px 0 rgb(255 255 255 / 0.18), inset 0 0 0 0.5px rgb(255 255 255 / 0.1), 0 30px 60px -20px rgb(0 0 0 / 0.7);
+  animation: np-sheet 0.35s var(--ease); }
+:is(.layout-stage, .layout-lyrics) .np-side.is-lyrics { padding: 0 8px; overflow: hidden; }
+/* Con el panel abierto, lo principal se aparta para que el panel no lo tape (en pantallas anchas) */
+@media (min-width: 1001px) {
+  :is(.layout-stage, .layout-lyrics):not(.no-side) .np-body { padding-right: calc(420px + 2 * var(--gutter)); }
+}
+@keyframes np-sheet { from { opacity: 0; transform: translateX(16px); } }
+.glass-reduced :is(.layout-stage, .layout-lyrics) .np-side { background: rgb(30 30 36); backdrop-filter: none; -webkit-backdrop-filter: none; }
+
+/* ---------- Diseño «Solo letra» ---------- */
+.np-body.np-body-lyrics { display: flex; justify-content: center; align-items: stretch; max-width: none; padding: 0; overflow: hidden; }
+.np-lyrics-main { position: relative; min-height: 0; height: 100%; display: flex; flex-direction: column; width: min(1100px, 100%); padding: 0 var(--gutter); }
+.np-lyrics-main .lyrics-box { flex: 1; min-height: 0; }
+.np-lyrics-main .lyrics { padding: 30vh 0 40vh; gap: 10px; }
+.np-lyrics-main .lyrics .line { text-align: center; font-size: clamp(1.8rem, 4.2vw, 3.6rem); line-height: 1.14; padding: 10px 16px; }
+.lyr-s .np-lyrics-main .lyrics .line { font-size: clamp(1.4rem, 3vw, 2.6rem); }
+.lyr-l .np-lyrics-main .lyrics .line { font-size: clamp(2.2rem, 5.4vw, 4.6rem); }
+.np-lyrics-main .lyrics.synced .line { transform-origin: center; }
+.np-lyrics-main .lyrics.synced .line:not(.now) { color: rgb(255 255 255 / 0.24); }
+.np-lyrics-main :is(.lyrics-src, .lyrics-msg) { text-align: center; }
+.np-lyrics-main > .lyrics-msg { margin: auto; font-size: 1.4rem; }
+.np-lyrics-main .lyrics-picker { width: min(640px, 100%); margin: 0 auto; }
+.np-mini { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto auto; grid-template-rows: auto auto; align-items: center; gap: 2px 18px; padding: 10px 0 12px; }
+.np-mini-art { width: 52px; height: 52px; border-radius: 10px; object-fit: cover; grid-row: span 2; background: rgb(255 255 255 / 0.1); box-shadow: 0 8px 20px -8px rgb(0 0 0 / 0.6); }
+.np-mini .np-titles { grid-column: 2; }
+.np-mini .np-titles h2 { font-size: 1.05rem; }
+.np-mini .seek { grid-column: 2 / -1; }
+.np-mini .transport { grid-column: 3; grid-row: 1; gap: 12px; }
+.np-mini .np-meta-actions { grid-column: 4; grid-row: 1; }
+.shape-circle .np-mini-art { border-radius: 50%; }
+.shape-square .np-mini-art { border-radius: 3px; }
+
+/* ---------- Diseño «Estudio»: portada pequeña y mucha información ---------- */
+.layout-studio { --col: clamp(300px, 32vw, 380px); }
+.layout-studio .np-stage { width: 56%; }
+.layout-studio .np-main { gap: 14px; }
+.np-info { margin: 2px 0 4px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; padding: 14px 16px; border-radius: 18px;
+  background: rgb(255 255 255 / 0.07); box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 0.1); }
+.np-info div { min-width: 0; }
+.np-info div:last-child:nth-child(odd) { grid-column: 1 / -1; }
+.np-info dt { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: rgb(255 255 255 / 0.5); }
+.np-info dd { margin: 2px 0 0; font-weight: 600; font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.np-info a { color: inherit; }
+.theme-minimal .np-info { background: rgb(255 255 255 / 0.04); box-shadow: none; }
+
+/* ---------- Modo reloj ---------- */
+.np-body { transition: opacity 0.8s ease; }
+.np-clock { position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  pointer-events: none; text-align: center; padding: 0 16px; animation: np-fade 1.4s ease both; }
+.np-clock time { font-size: clamp(5rem, 18vw, 15rem); font-weight: 700; letter-spacing: -0.045em; line-height: 0.95; font-variant-numeric: tabular-nums; text-shadow: 0 10px 60px rgb(0 0 0 / 0.4); }
+.np-clock-date { display: block; font-size: clamp(1.1rem, 2.4vw, 1.8rem); font-weight: 600; color: rgb(255 255 255 / 0.8); }
+.np-clock-date::first-letter { text-transform: uppercase; }
+.np-clock-song { margin-top: 18px; font-size: 1rem; font-weight: 500; color: rgb(255 255 255 / 0.6); max-width: 80vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nowplaying.is-clock { cursor: none; }
+.is-clock :is(.np-body, .np-top, .np-tabs, .np-notice) { opacity: 0.12; }
+
+@media (max-width: 1000px) {
+  .layout-stage { --col: min(520px, calc(100vw - 2 * var(--gutter))); }
+  :is(.layout-stage, .layout-lyrics) .np-side { left: 12px; right: 12px; width: auto; }
+  .layout-studio { --col: min(400px, calc(100vw - 2 * var(--gutter))); }
+  .layout-studio .np-stage { width: 50%; }
+  .np-mini { grid-template-columns: 48px minmax(0, 1fr); }
+  .np-mini-art { width: 48px; height: 48px; }
+  .np-mini .transport { grid-column: 1 / -1; grid-row: auto; justify-content: center; }
+  .np-mini .np-meta-actions { display: none; }
+}
+
+/* Sincronía fina de esta canción (encima de la letra) */
+.lyrics-sync { position: absolute; z-index: 3; right: 6px; bottom: 10px; display: inline-flex; align-items: center; border-radius: 999px; padding: 2px;
+  background: rgb(30 30 36 / 0.5); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 0.18);
+  opacity: 0.45; transition: opacity 0.25s; }
+.lyrics-box:hover .lyrics-sync, .lyrics-sync:focus-within, .lyrics-sync.is-set { opacity: 1; }
+.lyrics-sync button { border: 0; background: none; color: #fff; font: inherit; font-size: 0.8rem; font-weight: 700; padding: 5px 10px; border-radius: 999px; font-variant-numeric: tabular-nums; }
+.lyrics-sync button:hover { background: rgb(255 255 255 / 0.14); }
+.lyrics-sync .ls-value { font-weight: 600; min-width: 74px; color: rgb(255 255 255 / 0.85); }
+.np-karaoke .lyrics-sync, .np-lyrics-main .lyrics-sync { right: 50%; translate: 50% 0; bottom: 4px; }
+.lyrics-picker .picker-ne { margin-bottom: 10px; }
+@media (hover: none) { .lyrics-sync { opacity: 1; } }
+/* La vista recibe el foco al abrirse (para el teclado); sin contorno alrededor de toda la pantalla */
+.nowplaying:focus { outline: none; }

@@ -1,17 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
 import { useClock, useTick } from '../clock.js';
 import { useLiquidGlass } from '../glass.js';
-import { useApp } from '../store.jsx';
-import { DeviceList, QueueList, Seek, Transport, Volume } from './controls.jsx';
+import { useShortcuts } from '../shortcuts.js';
+import { go, useApp } from '../store.jsx';
+import { DeviceList, QueueList, Seek, Transport, Volume, toggleMute } from './controls.jsx';
 import NowPlaying from './nowplaying/NowPlaying.jsx';
 import { Artists, Cover, Icon, imgOf } from './ui.jsx';
 
 export default function PlayerBar() {
-  const { playback, actions, saved, checkSaved, toggleSaved, route } = useApp();
+  const { playback, actions, saved, checkSaved, toggleSaved, route, volumeNow, sdkClock } = useApp();
   const [panel, setPanel] = useState(null); // 'queue' | 'devices'
   const [open, setOpen] = useState(false);
   const item = playback?.item;
-  const clock = useClock(playback);
+  const clock = useClock(playback, sdkClock);
   const barRef = useRef(null);
   const popRef = useRef(null);
   useLiquidGlass(barRef);
@@ -29,21 +30,33 @@ export default function PlayerBar() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item?.uri]);
 
-  // Espacio = play/pausa (si no se está escribiendo)
-  useEffect(() => {
-    const k = (e) => {
-      if (e.code !== 'Space' || /input|textarea|select|button/i.test(e.target.tagName) || e.target.isContentEditable) return;
-      e.preventDefault();
-      actions.toggle();
-    };
-    window.addEventListener('keydown', k);
-    return () => window.removeEventListener('keydown', k);
-  });
-
   const seek = (ms) => {
-    clock.jump(ms);
-    actions.seek(ms);
+    const dur = item?.duration_ms || 0;
+    const to = Math.max(0, Math.min(dur ? dur - 500 : ms, ms));
+    clock.jump(to);
+    actions.seek(to);
   };
+
+  // Atajos de teclado (se cambian en Ajustes)
+  useShortcuts({
+    toggle: actions.toggle,
+    next: actions.next,
+    previous: actions.previous,
+    forward: () => item && seek(clock.now() + 10_000),
+    back: () => item && seek(clock.now() - 10_000),
+    volUp: () => volumeNow != null && actions.volume(Math.min(100, volumeNow + 10)),
+    volDown: () => volumeNow != null && actions.volume(Math.max(0, volumeNow - 10)),
+    mute: () => volumeNow != null && toggleMute(volumeNow, actions),
+    like: () => item?.type === 'track' && toggleSaved(item.uri),
+    shuffle: actions.shuffle,
+    repeat: actions.repeat,
+    nowPlaying: () => item && setOpen((o) => !o),
+    search: () => {
+      setOpen(false);
+      go('search');
+      setTimeout(() => document.querySelector('.search-bar input')?.focus(), 80);
+    },
+  });
 
   return (
     <>
