@@ -25,6 +25,12 @@ function reconcile(local, realItem, shownUri) {
   };
 }
 
+/** Aplica una operación; si ya se conoce la cola real de Spotify tras ella, esa sustituye a la calculada */
+const applyOp = (acc, op) => {
+  const next = op.apply(acc);
+  return op.queueAfter ? { ...next, queue: op.queueAfter } : next;
+};
+
 /** Posición estimada ahora mismo a partir del último estado conocido */
 const positionOf = (pb) =>
   pb ? Math.min(pb.item?.duration_ms || 0, pb.progress_ms + (pb.is_playing ? Date.now() - pb.fetchedAt : 0)) : 0;
@@ -142,7 +148,7 @@ export function AppProvider({ children }) {
   const recompute = useCallback(() => {
     const base = baseRef.current;
     if (!base) return;
-    commit(opsRef.current.reduce((acc, op) => op.apply(acc), base));
+    commit(opsRef.current.reduce(applyOp, base));
     if (!opsRef.current.length) baseRef.current = null;
   }, [commit]);
 
@@ -183,7 +189,7 @@ export function AppProvider({ children }) {
         // cambios de canción aceptados y se contrastan con la canción que suena de verdad: un
         // «Siguiente» sin respuesta (o rechazado más tarde) no se queda comido en la cola
         const kept = ops.filter((o) => !o.track || o.accepted);
-        const candidate = kept.reduce((acc, o) => o.apply(acc), baseRef.current);
+        const candidate = kept.reduce(applyOp, baseRef.current);
         const real = st ? { ...st, fetchedAt: Date.now() } : null;
         const local = reconcile(candidate, real?.item, playbackRef.current?.item?.uri);
         clearOps();
@@ -262,10 +268,11 @@ export function AppProvider({ children }) {
       if (trackPending()) return;
       const list = (q?.queue || []).filter(Boolean);
       if (opsRef.current.length && baseRef.current) {
-        // Los cambios de canción ya aceptados pasan a la base y la cola real sustituye a la de la base
-        const base = opsRef.current.filter((o) => o.track).reduce((acc, o) => o.apply(acc), baseRef.current);
-        baseRef.current = { ...base, queue: list };
-        opsRef.current = opsRef.current.filter((o) => !o.track);
+        // Las órdenes siguen pendientes (protegen de sondeos atrasados); la cola real se guarda en el
+        // último cambio de canción aceptado, o en la base si solo hay pausas o búsquedas
+        const tracks = opsRef.current.filter((o) => o.track);
+        if (tracks.length) tracks[tracks.length - 1].queueAfter = list;
+        else baseRef.current = { ...baseRef.current, queue: list };
       }
       queueRef.current = list;
       setQueue(list);
