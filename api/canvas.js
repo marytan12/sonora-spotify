@@ -9,7 +9,9 @@ export default async function handler(req, res) {
   const upstream = process.env.CANVAS_UPSTREAM || 'https://spotify-canva.vercel.app/api/canvas';
   try {
     const r = await fetch(`${upstream}?trackId=${trackId}`, { signal: AbortSignal.timeout(8000) });
-    const data = r.ok ? await r.json() : {};
+    // Si el servicio falla, se responde 502 para que la app distinga el fallo de "sin Canvas"
+    if (!r.ok) return res.status(502).json({ error: `Servicio de Canvas: ${r.status}`, canvasesList: [] });
+    const data = await r.json();
     const canvasesList = (data.canvasesList || [])
       .filter((c) => typeof c.canvasUrl === 'string' && c.canvasUrl.startsWith('https://'))
       .map((c) => ({ canvasUrl: c.canvasUrl }));

@@ -49,7 +49,7 @@ function Toggle({ label, value, onChange }) {
   );
 }
 
-export default function Settings({ prefs, set, canvas, isTrack }) {
+export default function Settings({ prefs, set, canvas, canvasError, onRetryCanvas, isTrack }) {
   return (
     <div className="np-settings">
       <h3>Ajustes de la vista</h3>
@@ -161,7 +161,23 @@ export default function Settings({ prefs, set, canvas, isTrack }) {
         ]}
       />
       <p className="opt-hint">
-        {prefs.canvas === 'none' ? 'Canvas desactivado: se muestra la portada.' : !isTrack ? 'Solo las canciones tienen Canvas.' : canvas ? 'Esta canción tiene Canvas.' : 'Esta canción no tiene Canvas: se usa la portada.'}
+        {prefs.canvas === 'none'
+          ? 'Canvas desactivado: se muestra la portada.'
+          : !isTrack
+            ? 'Solo las canciones tienen Canvas.'
+            : canvasError
+              ? 'El servicio de Canvas no responde ahora mismo: se muestra la portada.'
+              : canvas
+                ? 'Esta canción tiene Canvas.'
+                : 'Esta canción no tiene Canvas: se usa la portada.'}
+        {canvasError && prefs.canvas !== 'none' && isTrack && (
+          <>
+            {' '}
+            <button type="button" className="lyrics-fix" onClick={onRetryCanvas}>
+              Reintentar
+            </button>
+          </>
+        )}
       </p>
       {prefs.canvas === 'portrait' && (
         <Options

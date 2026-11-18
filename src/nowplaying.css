@@ -267,3 +267,15 @@
 .np-fade { animation: np-fade 0.35s ease both; }
 @keyframes np-fade { from { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .np-bg-layer, .np-fade { animation: none; } }
+
+/* Aviso discreto (p. ej. el servicio de Canvas no responde) */
+.np-notice { position: absolute; z-index: 3; top: 18px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 10px;
+  max-width: calc(100vw - 180px); padding: 7px 8px 7px 14px; border-radius: 999px; font-size: 0.84rem; color: #fff;
+  background: rgb(30 30 36 / 0.62); backdrop-filter: blur(24px) saturate(160%); -webkit-backdrop-filter: blur(24px) saturate(160%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.18), 0 10px 30px -10px rgb(0 0 0 / 0.6); animation: np-fade 0.3s ease both; }
+.np-notice span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.np-notice button { border: 0; border-radius: 999px; padding: 4px 11px; font-size: 0.8rem; font-weight: 600; background: rgb(255 255 255 / 0.9); color: #111; flex-shrink: 0; }
+.np-notice .np-notice-close { background: transparent; color: rgb(255 255 255 / 0.75); padding: 4px; display: grid; place-items: center; }
+.np-notice .np-notice-close:hover { color: #fff; }
+.nowplaying:has(.np-notice) .np-source { visibility: hidden; }
+@media (max-width: 760px) { .np-notice { top: 64px; max-width: calc(100vw - 24px); } }

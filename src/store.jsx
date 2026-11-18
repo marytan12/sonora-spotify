@@ -1,8 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { prefetchQueue } from './prefetch.js';
+import { prefetchQueue, prefetchTrack } from './prefetch.js';
 import { getToken, sp } from './spotify.js';
 
-const POLL_MS = 3000; // sondeo del estado de reproducción
+const POLL_MS = 3000; // sondeo del estado de reproducción con la pestaña visible
+const POLL_HIDDEN_MS = 15000; // con la pestaña en segundo plano (gasta menos red y batería)
+const RESTART_MS = 3000; // "Anterior" con más de 3 s reproducidos vuelve al principio de la canción
 const EXPECT_MS = 3500; // tiempo que se respeta un cambio optimista mientras Spotify lo confirma
 
 /** Posición estimada ahora mismo a partir del último estado conocido */
@@ -33,14 +35,17 @@ export function AppProvider({ children }) {
   const [saved, setSaved] = useState({}); // uri -> boolean
   const [addTarget, setAddTarget] = useState(null); // uris para el modal "Añadir a playlist"
   const [queue, setQueue] = useState([]); // próximas canciones (de Spotify)
+  const [history, setHistory] = useState([]); // canciones ya escuchadas en esta sesión (la última primero)
   const playerRef = useRef(null);
   const sdkIdRef = useRef(null);
   const playbackRef = useRef(null);
   const queueRef = useRef([]);
+  const historyRef = useRef([]);
   const expectRef = useRef(null); // { uri, playing, until }: cambio optimista pendiente de confirmar
   const retryRef = useRef(null);
   playbackRef.current = playback;
   queueRef.current = queue;
+  historyRef.current = history;
 
   useEffect(() => {
     const onHash = () => {
@@ -143,6 +148,31 @@ export function AppProvider({ children }) {
   }, [itemUri, refreshQueue]);
   useEffect(() => prefetchQueue(queue), [queue]);
 
+  // ---------- Historial: la canción anterior también queda precargada ----------
+  const lastItemRef = useRef(null);
+  useEffect(() => {
+    const it = playback?.item;
+    const last = lastItemRef.current;
+    if (it && last && last.uri !== it.uri) {
+      setHistory((h) => [last, ...h.filter((x) => x.uri !== last.uri && x.uri !== it.uri)].slice(0, 20));
+    }
+    if (it) lastItemRef.current = it;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [itemUri]);
+  // Al entrar, el historial empieza con lo último que se escuchó en Spotify
+  useEffect(() => {
+    sp.recentlyPlayed()
+      .then((r) => {
+        const tracks = (r?.items || []).map((x) => x.track).filter(Boolean);
+        setHistory((h) => (h.length ? h : tracks.filter((t, i) => tracks.findIndex((x) => x.uri === t.uri) === i).slice(0, 20)));
+      })
+      .catch(() => {});
+  }, []);
+  const previousItem = history.find((t) => t.uri !== itemUri) || null;
+  useEffect(() => {
+    if (previousItem) prefetchTrack(previousItem, 0);
+  }, [previousItem]);
+
   // ---------- Fin de canción: se adelanta el cambio en vez de esperar al siguiente sondeo ----------
   useEffect(() => {
     if (!playback?.is_playing || !playback.item) return;
@@ -170,10 +200,32 @@ export function AppProvider({ children }) {
   useEffect(() => {
     sp.me().then(setUser).catch(fail);
     refreshPlaylists();
+  }, [fail, refreshPlaylists]);
+
+  // Sondeo: cada 3 s con la pestaña visible y cada 15 s en segundo plano; al volver, al instante
+  useEffect(() => {
+    let t;
+    const schedule = () => {
+      clearTimeout(t);
+      t = setTimeout(async () => {
+        await refreshPlayback();
+        schedule();
+      }, document.hidden ? POLL_HIDDEN_MS : POLL_MS);
+    };
+    const onVisible = () => {
+      if (document.hidden) return schedule();
+      refreshPlayback();
+      refreshQueue();
+      schedule();
+    };
     refreshPlayback();
-    const t = setInterval(refreshPlayback, POLL_MS);
-    return () => clearInterval(t);
-  }, [fail, refreshPlaylists, refreshPlayback]);
+    schedule();
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearTimeout(t);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [refreshPlayback, refreshQueue]);
 
   // ---------- Web Playback SDK: convierte el navegador en un dispositivo (requiere Premium) ----------
   useEffect(() => {
@@ -248,7 +300,21 @@ export function AppProvider({ children }) {
       if (playbackRef.current?.repeat_state !== 'track') advance();
       return run(() => sp.next());
     },
-    previous: () => run(() => sp.previous()),
+    previous: () => {
+      const pb = playbackRef.current;
+      if (pb?.item) {
+        const prev = historyRef.current.find((t) => t.uri !== pb.item.uri);
+        if (positionOf(pb) > RESTART_MS) {
+          optimistic({ progress_ms: 0 }, { uri: pb.item.uri, pos: 0, at: Date.now() });
+        } else if (prev) {
+          optimistic({ item: prev, progress_ms: 0, is_playing: true }, { uri: prev.uri });
+          setQueue((q) => [pb.item, ...q]);
+          setHistory((h) => h.filter((t) => t.uri !== prev.uri));
+          lastItemRef.current = prev;
+        }
+      }
+      return run(() => sp.previous());
+    },
     seek: (ms) => {
       const pb = playbackRef.current;
       const pos = Math.round(ms);
@@ -353,6 +419,7 @@ export function AppProvider({ children }) {
     actions,
     queue,
     refreshQueue,
+    previousItem,
     toast,
     fail,
     playlists,

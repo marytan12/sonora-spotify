@@ -173,32 +173,42 @@ const canvasCache = new Map();
 export const canvasEnabled = !!CANVAS_API;
 
 const canvasPending = new Map();
+class CanvasServiceError extends Error {}
 
 async function fetchCanvas(trackId) {
+  let res;
   try {
-    const res = await fetch(`${CANVAS_API}?trackId=${encodeURIComponent(trackId)}`);
-    const data = res.ok ? await res.json() : null;
-    return data?.canvasesList?.[0]?.canvasUrl || data?.canvasUrl || null;
+    res = await fetch(`${CANVAS_API}?trackId=${encodeURIComponent(trackId)}`);
   } catch {
-    return null;
+    throw new CanvasServiceError('sin conexión');
   }
+  if (res.status >= 500 || res.status === 429) throw new CanvasServiceError(`HTTP ${res.status}`);
+  const data = res.ok ? await res.json().catch(() => null) : null;
+  return data?.canvasesList?.[0]?.canvasUrl || data?.canvasUrl || null;
 }
 
-/** URL del Canvas de una canción (o null); comparte la petición si ya está en curso */
-export function getCanvasUrl(trackId) {
-  if (!CANVAS_API || !trackId) return Promise.resolve(null);
-  if (canvasCache.has(trackId)) return Promise.resolve(canvasCache.get(trackId));
+/** Canvas de una canción: { url, error }. Los fallos del servicio no se guardan en caché */
+function loadCanvas(trackId) {
+  if (canvasCache.has(trackId)) return Promise.resolve({ url: canvasCache.get(trackId), error: false });
   if (!canvasPending.has(trackId)) {
     canvasPending.set(
       trackId,
-      fetchCanvas(trackId).then((url) => {
-        canvasCache.set(trackId, url);
-        canvasPending.delete(trackId);
-        return url;
-      })
+      fetchCanvas(trackId)
+        .then((url) => {
+          canvasCache.set(trackId, url);
+          return { url, error: false };
+        })
+        .catch(() => ({ url: null, error: true }))
+        .finally(() => canvasPending.delete(trackId))
     );
   }
   return canvasPending.get(trackId);
+}
+
+/** URL del Canvas de una canción (o null) */
+export function getCanvasUrl(trackId) {
+  if (!CANVAS_API || !trackId) return Promise.resolve(null);
+  return loadCanvas(trackId).then((r) => r.url);
 }
 
 // ---------- Precarga (canciones de la cola) ----------
@@ -230,15 +240,19 @@ export function warmVideo(url) {
   }
 }
 
+/** { url, error, loading, retry } del Canvas de la canción */
 export function useCanvas(trackId) {
-  const [url, setUrl] = useState(null);
+  const [state, setState] = useState({ url: null, error: false, loading: false });
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
+    if (!CANVAS_API || !trackId) return setState({ url: null, error: false, loading: false });
     let alive = true;
-    setUrl(canvasCache.get(trackId) ?? null);
-    getCanvasUrl(trackId).then((u) => alive && setUrl(u));
+    const cached = canvasCache.get(trackId);
+    setState({ url: cached ?? null, error: false, loading: !canvasCache.has(trackId) });
+    loadCanvas(trackId).then((r) => alive && setState({ ...r, loading: false }));
     return () => {
       alive = false;
     };
-  }, [trackId]);
-  return url;
+  }, [trackId, attempt]);
+  return { ...state, retry: () => setAttempt((n) => n + 1) };
 }

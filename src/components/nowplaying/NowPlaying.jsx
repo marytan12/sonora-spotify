@@ -54,7 +54,10 @@ export default function NowPlaying({ onClose, clock }) {
   const color = useArtColor(art);
   const palette = useArtPalette(prefs.breathe ? art : null);
   const [karaoke, setKaraoke] = useState(false);
-  const canvas = useCanvas(prefs.canvas !== 'none' && isTrack ? item.id : null);
+  const canvasState = useCanvas(prefs.canvas !== 'none' && isTrack ? item.id : null);
+  const canvas = canvasState.url;
+  const [canvasNoticeHidden, setCanvasNoticeHidden] = useState(false);
+  useEffect(() => setCanvasNoticeHidden(false), [item?.id]);
   const progress = useTick(clock.now, playback?.is_playing, 150);
   const root = useRef(null);
   // En karaoke las barras siempre se esconden en reposo; fuera, solo si el usuario lo activa
@@ -211,6 +214,19 @@ export default function NowPlaying({ onClose, clock }) {
         </div>
       )}
 
+      {canvasState.error && !canvasNoticeHidden && (
+        <div className="np-notice" role="status">
+          <Icon name="alert" size={16} />
+          <span>El servicio de Canvas no responde: se muestra la portada.</span>
+          <button type="button" onClick={canvasState.retry}>
+            Reintentar
+          </button>
+          <button type="button" className="np-notice-close" onClick={() => setCanvasNoticeHidden(true)} aria-label="Cerrar aviso">
+            <Icon name="close" size={14} />
+          </button>
+        </div>
+      )}
+
       <div className="np-body">
         <section className="np-main">
           <div className="np-stage">
@@ -280,7 +296,9 @@ export default function NowPlaying({ onClose, clock }) {
             {prefs.panel === 'queue' && <QueueList />}
             {prefs.panel === 'devices' && <DeviceList />}
             {prefs.panel === 'credits' && <Credits item={item} />}
-            {prefs.panel === 'settings' && <Settings prefs={prefs} set={set} canvas={canvas} isTrack={isTrack} />}
+            {prefs.panel === 'settings' && (
+              <Settings prefs={prefs} set={set} canvas={canvas} canvasError={canvasState.error} onRetryCanvas={canvasState.retry} isTrack={isTrack} />
+            )}
           </section>
         )}
       </div>
