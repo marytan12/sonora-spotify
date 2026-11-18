@@ -50,6 +50,7 @@ export function AppProvider({ children }) {
   const rollbackRef = useRef(() => {});
   const expireRef = useRef(null); // temporizador que deshace el cambio si no se confirma a tiempo
   const rolledBackRef = useRef(null); // canción cuyo paso automático a la siguiente se deshizo
+  const txRef = useRef(0); // identificador de cada cambio optimista
   playbackRef.current = playback;
   queueRef.current = queue;
   historyRef.current = history;
@@ -118,7 +119,7 @@ export function AppProvider({ children }) {
         if (matches) {
           snapRef.current = null;
           rolledBackRef.current = null;
-        } else rollbackRef.current();
+        } else rollbackRef.current(e.tx);
       }
       expectRef.current = null;
       clearTimeout(expireRef.current);
@@ -129,35 +130,46 @@ export function AppProvider({ children }) {
   }, []);
 
   /** Aplica un cambio en la interfaz antes de que Spotify lo confirme */
-  const optimistic = useCallback((patch, expect) => {
+  /** Aplica un cambio en la interfaz antes de que Spotify lo confirme. Devuelve su identificador:
+   *  solo un fallo de esa misma orden (o su plazo vencido) puede deshacerlo. */
+  const optimistic = useCallback((patch, expect, { auto = false } = {}) => {
+    const tx = ++txRef.current;
     if (!snapRef.current) {
       snapRef.current = {
         playback: playbackRef.current,
         queue: queueRef.current,
         history: historyRef.current,
         last: lastItemRef.current,
+        txs: new Set(),
+        auto: false,
       };
     }
+    snapRef.current.txs.add(tx);
+    if (auto) snapRef.current.auto = true;
     setPlayback((pb) => (pb ? { ...pb, ...patch, fetchedAt: Date.now() } : pb));
-    const e = { ...expect, until: Date.now() + EXPECT_MS };
+    const e = { ...expect, tx, until: Date.now() + EXPECT_MS };
     expectRef.current = e;
     // Si en el plazo no llega la confirmación (o fallan las consultas), se deshace igualmente
     clearTimeout(expireRef.current);
     expireRef.current = setTimeout(() => {
       if (expectRef.current !== e) return;
       expectRef.current = null;
-      rollbackRef.current();
+      rollbackRef.current(tx);
     }, EXPECT_MS + 250);
+    return tx;
   }, []);
 
   /** Pasa a la siguiente canción de la cola sin esperar al sondeo */
-  const advance = useCallback(() => {
-    const next = queueRef.current[0];
-    if (!next) return false;
-    optimistic({ item: next, progress_ms: 0, is_playing: true }, { uri: next.uri });
-    setQueue((q) => q.slice(1));
-    return true;
-  }, [optimistic]);
+  const advance = useCallback(
+    ({ auto = false } = {}) => {
+      const next = queueRef.current[0];
+      if (!next) return null;
+      const tx = optimistic({ item: next, progress_ms: 0, is_playing: true }, { uri: next.uri }, { auto });
+      setQueue((q) => q.slice(1));
+      return tx;
+    },
+    [optimistic]
+  );
 
   // ---------- Cola: se pide al cambiar de canción y se precargan las siguientes ----------
   const itemUri = playback?.item?.uri;
@@ -176,6 +188,15 @@ export function AppProvider({ children }) {
     return () => clearTimeout(t);
   }, [itemUri, refreshQueue]);
   useEffect(() => prefetchQueue(queue), [queue]);
+  // Si la canción que suena figura al principio de la cola local, se quita (y lo anterior a ella):
+  // mantiene la cola coherente aunque falle la consulta de la cola
+  useEffect(() => {
+    if (!itemUri) return;
+    setQueue((q) => {
+      const i = q.slice(0, 5).findIndex((t) => t.uri === itemUri);
+      return i >= 0 ? q.slice(i + 1) : q;
+    });
+  }, [itemUri]);
 
   // ---------- Historial: la canción anterior también queda precargada ----------
   useEffect(() => {
@@ -212,7 +233,7 @@ export function AppProvider({ children }) {
       const pb = playbackRef.current;
       if (!pb?.is_playing || pb.item?.uri !== uri) return;
       // Si ya se deshizo el paso automático de esta canción (p. ej. sin conexión), no se repite en bucle
-      if (pb.repeat_state !== 'track' && rolledBackRef.current !== uri) advance();
+      if (pb.repeat_state !== 'track' && rolledBackRef.current !== uri) advance({ auto: true });
       setTimeout(refreshPlayback, 600);
       setTimeout(refreshPlayback, 1800);
     }, Math.max(0, remaining + 120));
@@ -304,29 +325,31 @@ export function AppProvider({ children }) {
   );
 
   // Deshace un cambio de canción optimista que no llegó a ocurrir
-  rollbackRef.current = () => {
+  rollbackRef.current = (tx) => {
     const snap = snapRef.current;
+    // Solo se deshace si la copia cubre esa transacción (una orden ajena que falle no toca nada)
+    if (!snap || !snap.txs.has(tx)) return;
     snapRef.current = null;
+    if (expectRef.current?.tx && snap.txs.has(expectRef.current.tx)) expectRef.current = null;
     clearTimeout(expireRef.current);
-    if (snap) {
-      setPlayback(snap.playback);
-      setQueue(snap.queue);
-      setHistory(snap.history);
-      lastItemRef.current = snap.last;
-      rolledBackRef.current = snap.playback?.item?.uri ?? null;
-    }
+    setPlayback(snap.playback);
+    setQueue(snap.queue);
+    setHistory(snap.history);
+    lastItemRef.current = snap.last;
+    // Solo si lo deshecho incluía el paso automático de fin de canción, no se repite para esta canción
+    if (snap.auto) rolledBackRef.current = snap.playback?.item?.uri ?? null;
     // Después se intenta sincronizar con Spotify; si falla, se queda la copia restaurada
     refreshQueue();
   };
 
+  /** Ejecuta una orden. `tx`: identificador del cambio optimista que la acompaña (si lo hay) */
   const run = useCallback(
-    (fn, okMsg) =>
+    (fn, okMsg, tx = null) =>
       withDevice(fn)
         .then(() => okMsg && toast(okMsg))
         .catch((e) => {
-          // Si falla, se descarta el cambio optimista y se vuelve al estado real
-          expectRef.current = null;
-          rollbackRef.current();
+          // Si falla, se deshace solo el cambio optimista de esta misma orden
+          if (tx != null) rollbackRef.current(tx);
           refreshPlayback();
           fail(e);
         }),
@@ -341,36 +364,37 @@ export function AppProvider({ children }) {
       const pb = playbackRef.current;
       if (!pb?.item) return run((d) => sp.play({}, d));
       const playing = !pb.is_playing;
-      optimistic({ is_playing: playing, progress_ms: positionOf(pb) }, { uri: pb.item.uri, playing });
-      return run((d) => (playing ? sp.play({}, d) : sp.pause(d)));
+      const tx = optimistic({ is_playing: playing, progress_ms: positionOf(pb) }, { uri: pb.item.uri, playing });
+      return run((d) => (playing ? sp.play({}, d) : sp.pause(d)), null, tx);
     },
     next: () => {
-      if (playbackRef.current?.repeat_state !== 'track') advance();
-      return run(() => sp.next());
+      const tx = playbackRef.current?.repeat_state !== 'track' ? advance() : null;
+      return run(() => sp.next(), null, tx);
     },
     previous: () => {
       const pb = playbackRef.current;
       // Con más de 3 s reproducidos, "Anterior" vuelve al principio de la canción (como Spotify)
       if (pb?.item && positionOf(pb) > RESTART_MS) {
-        optimistic({ progress_ms: 0 }, { uri: pb.item.uri, pos: 0, at: Date.now() });
-        return run(() => sp.seek(0));
+        const tx = optimistic({ progress_ms: 0 }, { uri: pb.item.uri, pos: 0, at: Date.now() });
+        return run(() => sp.seek(0), null, tx);
       }
       const prev = pb?.item && historyRef.current.find((t) => t.uri !== pb.item.uri);
+      let tx = null;
       if (prev) {
-        // Si Spotify lo rechaza o no lo confirma, rollbackRef restaura historial y cola
-        optimistic({ item: prev, progress_ms: 0, is_playing: true }, { uri: prev.uri });
+        // Si Spotify lo rechaza o no lo confirma, rollbackRef restaura reproducción, historial y cola
+        tx = optimistic({ item: prev, progress_ms: 0, is_playing: true }, { uri: prev.uri });
         setQueue((q) => [pb.item, ...q]);
         setHistory((h) => h.filter((t) => t.uri !== prev.uri));
         lastItemRef.current = prev;
       }
-      return run(() => sp.previous());
+      return run(() => sp.previous(), null, tx);
     },
     seek: (ms) => {
       const pb = playbackRef.current;
       const pos = Math.round(ms);
       // El estado global también se mueve: si no, el aviso de fin de canción saltaría a destiempo
-      if (pb?.item) optimistic({ progress_ms: pos }, { uri: pb.item.uri, pos, at: Date.now() });
-      return run(() => sp.seek(pos));
+      const tx = pb?.item ? optimistic({ progress_ms: pos }, { uri: pb.item.uri, pos, at: Date.now() }) : null;
+      return run(() => sp.seek(pos), null, tx);
     },
     volume: (v) => run(() => sp.volume(Math.round(v))),
     shuffle: () => run(() => sp.shuffle(!playback?.shuffle_state)),
