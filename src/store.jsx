@@ -43,6 +43,9 @@ export function AppProvider({ children }) {
   const historyRef = useRef([]);
   const expectRef = useRef(null); // { uri, playing, until }: cambio optimista pendiente de confirmar
   const retryRef = useRef(null);
+  const lastItemRef = useRef(null); // última canción vista (para el historial)
+  const snapRef = useRef(null); // historial antes de un cambio de canción optimista, para deshacerlo
+  const rollbackRef = useRef(() => {});
   playbackRef.current = playback;
   queueRef.current = queue;
   historyRef.current = history;
@@ -96,17 +99,20 @@ export function AppProvider({ children }) {
       // Si hay un cambio optimista (siguiente, pausa…) se ignoran las respuestas que aún no lo
       // reflejan: así la interfaz no "rebota" a la canción o estado anteriores
       const e = expectRef.current;
-      if (e && Date.now() < e.until) {
+      if (e) {
         const matches =
           (!e.uri || st?.item?.uri === e.uri) &&
           (e.playing === undefined || st?.is_playing === e.playing) &&
           // Tras buscar, la posición que devuelve Spotify debe estar cerca de la pedida
           (e.pos === undefined || (st && Math.abs(st.progress_ms - (e.pos + (st.is_playing ? Date.now() - e.at : 0))) < 2500));
-        if (!matches) {
+        if (!matches && Date.now() < e.until) {
           clearTimeout(retryRef.current);
           retryRef.current = setTimeout(refreshPlayback, 700);
           return;
         }
+        // Confirmado: el cambio se da por bueno. Sin confirmar a tiempo: se deshace el historial
+        if (matches) snapRef.current = null;
+        else rollbackRef.current();
       }
       expectRef.current = null;
       setPlayback(st ? { ...st, fetchedAt: Date.now() } : null);
@@ -117,6 +123,8 @@ export function AppProvider({ children }) {
 
   /** Aplica un cambio en la interfaz antes de que Spotify lo confirme */
   const optimistic = useCallback((patch, expect) => {
+    // Se guarda el historial previo al primer cambio de canción aún sin confirmar
+    if (patch.item && !snapRef.current) snapRef.current = { history: historyRef.current, last: lastItemRef.current };
     setPlayback((pb) => (pb ? { ...pb, ...patch, fetchedAt: Date.now() } : pb));
     expectRef.current = { ...expect, until: Date.now() + EXPECT_MS };
   }, []);
@@ -149,7 +157,6 @@ export function AppProvider({ children }) {
   useEffect(() => prefetchQueue(queue), [queue]);
 
   // ---------- Historial: la canción anterior también queda precargada ----------
-  const lastItemRef = useRef(null);
   useEffect(() => {
     const it = playback?.item;
     const last = lastItemRef.current;
@@ -272,6 +279,17 @@ export function AppProvider({ children }) {
     [refreshPlayback]
   );
 
+  // Deshace un cambio de canción optimista que no llegó a ocurrir
+  rollbackRef.current = () => {
+    const snap = snapRef.current;
+    snapRef.current = null;
+    if (snap) {
+      setHistory(snap.history);
+      lastItemRef.current = snap.last;
+    }
+    refreshQueue();
+  };
+
   const run = useCallback(
     (fn, okMsg) =>
       withDevice(fn)
@@ -279,6 +297,7 @@ export function AppProvider({ children }) {
         .catch((e) => {
           // Si falla, se descarta el cambio optimista y se vuelve al estado real
           expectRef.current = null;
+          rollbackRef.current();
           refreshPlayback();
           fail(e);
         }),
@@ -302,16 +321,18 @@ export function AppProvider({ children }) {
     },
     previous: () => {
       const pb = playbackRef.current;
-      if (pb?.item) {
-        const prev = historyRef.current.find((t) => t.uri !== pb.item.uri);
-        if (positionOf(pb) > RESTART_MS) {
-          optimistic({ progress_ms: 0 }, { uri: pb.item.uri, pos: 0, at: Date.now() });
-        } else if (prev) {
-          optimistic({ item: prev, progress_ms: 0, is_playing: true }, { uri: prev.uri });
-          setQueue((q) => [pb.item, ...q]);
-          setHistory((h) => h.filter((t) => t.uri !== prev.uri));
-          lastItemRef.current = prev;
-        }
+      // Con más de 3 s reproducidos, "Anterior" vuelve al principio de la canción (como Spotify)
+      if (pb?.item && positionOf(pb) > RESTART_MS) {
+        optimistic({ progress_ms: 0 }, { uri: pb.item.uri, pos: 0, at: Date.now() });
+        return run(() => sp.seek(0));
+      }
+      const prev = pb?.item && historyRef.current.find((t) => t.uri !== pb.item.uri);
+      if (prev) {
+        // Si Spotify lo rechaza o no lo confirma, rollbackRef restaura historial y cola
+        optimistic({ item: prev, progress_ms: 0, is_playing: true }, { uri: prev.uri });
+        setQueue((q) => [pb.item, ...q]);
+        setHistory((h) => h.filter((t) => t.uri !== prev.uri));
+        lastItemRef.current = prev;
       }
       return run(() => sp.previous());
     },
