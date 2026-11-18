@@ -100,7 +100,7 @@ export default function Lyrics({ item, now, onSeek, variant }) {
     const from = variant === 'line' ? active : Math.max(0, active - 1);
     const to = variant === 'line' ? active : active + 1;
     return (
-      <div className={`lyrics-overlay ${variant}`} ref={box} aria-live="polite">
+      <div className={`lyrics-overlay lo-${variant}`} ref={box} aria-live="polite">
         {active < 0 ? (
           <p className="line">♪</p>
         ) : (

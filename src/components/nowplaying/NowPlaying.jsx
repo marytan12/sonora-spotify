@@ -244,10 +244,11 @@ export default function NowPlaying({ onClose, clock }) {
                     <Icon name="music" size={64} />
                   </div>
                 )}
+                {/* Dentro del marco: el recorte de la portada (redondeada, cuadrada o circular) se aplica también a la letra */}
+                {isTrack && (prefs.lyrics === 'cover' || prefs.lyrics === 'line') && (
+                  <Lyrics item={item} now={lyricNow} onSeek={seek} variant={prefs.lyrics} />
+                )}
               </div>
-              {isTrack && (prefs.lyrics === 'cover' || prefs.lyrics === 'line') && (
-                <Lyrics item={item} now={lyricNow} onSeek={seek} variant={prefs.lyrics} />
-              )}
             </div>
           </div>
 
