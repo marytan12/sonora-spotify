@@ -2,7 +2,8 @@
 import { useEffect, useState } from 'react';
 
 const LRCLIB = 'https://lrclib.net/api';
-const cache = new Map();
+const cache = new Map(); // id -> resultado
+const inflight = new Map(); // id -> promesa en curso (evita pedir dos veces la misma letra)
 
 // ---------- Letra elegida a mano (cuando la automática no cuadra) ----------
 const PICK_KEY = 'sonora_lyrics_pick';
@@ -24,6 +25,7 @@ export function pickLyrics(trackId, lrclibId) {
     /* sin almacenamiento */
   }
   cache.delete(trackId);
+  inflight.delete(trackId);
   listeners.forEach((f) => f(trackId));
 }
 
@@ -55,7 +57,9 @@ const cleanName = (name) => name.replace(/\s+-\s+.*$/, '').replace(/\s*\((?:feat
 
 async function getJson(url) {
   const res = await fetch(url);
-  return res.ok ? res.json() : null;
+  if (res.ok) return res.json();
+  if (res.status === 404) return null;
+  throw new Error(`LRCLIB ${res.status}`); // 429 o caída: error temporal, se podrá reintentar
 }
 
 /** Convierte una entrada de LRCLIB en el estado de la letra, con datos para saber si cuadra */
@@ -84,8 +88,8 @@ export async function lyricsCandidates(track) {
   const name = cleanName(track.name);
   const secs = secsOf(track);
   const lists = await Promise.all([
-    getJson(`${LRCLIB}/search?${new URLSearchParams({ track_name: name, artist_name: artist })}`).catch(() => null),
-    getJson(`${LRCLIB}/search?${new URLSearchParams({ q: `${name} ${artist}` })}`).catch(() => null),
+    getJson(`${LRCLIB}/search?${new URLSearchParams({ track_name: name, artist_name: artist })}`),
+    getJson(`${LRCLIB}/search?${new URLSearchParams({ q: `${name} ${artist}` })}`),
   ]);
   const seen = new Set();
   const all = lists.flat().filter((x) => x && !seen.has(x.id) && seen.add(x.id));
@@ -113,6 +117,41 @@ async function fetchLyrics(track) {
   return list[0] ? toResult(list[0], 'search', secs) : { status: 'none' };
 }
 
+/** Carga (o reutiliza) la letra de una canción; comparte la petición si ya está en curso */
+function loadLyrics(track) {
+  const id = track.id;
+  if (cache.has(id)) return Promise.resolve(cache.get(id));
+  if (inflight.has(id)) return inflight.get(id);
+  const p = fetchLyrics(track)
+    .catch(() => ({ status: 'error' }))
+    .then((r) => {
+      inflight.delete(id);
+      if (r.status !== 'error') cache.set(id, r);
+      return r;
+    });
+  inflight.set(id, p);
+  return p;
+}
+
+// La precarga va de una en una y espaciada para no saturar LRCLIB (responde 429 si hay ráfagas)
+let prefetchChain = Promise.resolve();
+const PREFETCH_GAP_MS = 400;
+
+/** Precarga la letra de una canción de la cola */
+export function prefetchLyrics(track) {
+  if (track?.type !== 'track' || !track.id || cache.has(track.id) || inflight.has(track.id)) return;
+  prefetchChain = prefetchChain
+    .then(() => (cache.has(track.id) ? null : loadLyrics(track)))
+    .then(() => new Promise((r) => setTimeout(r, PREFETCH_GAP_MS)));
+}
+
+/** Vuelve a intentar cargar la letra (tras un error temporal) */
+export function retryLyrics(trackId) {
+  cache.delete(trackId);
+  inflight.delete(trackId);
+  listeners.forEach((f) => f(trackId));
+}
+
 export function useLyrics(track, enabled) {
   const id = track?.id;
   const [state, setState] = useState({ status: 'idle' });
@@ -129,12 +168,7 @@ export function useLyrics(track, enabled) {
     if (cache.has(id)) return setState({ ...cache.get(id), id });
     let alive = true;
     setState({ status: 'loading', id });
-    fetchLyrics(track)
-      .catch(() => ({ status: 'error' }))
-      .then((r) => {
-        if (r.status !== 'error') cache.set(id, r);
-        if (alive) setState({ ...r, id });
-      });
+    loadLyrics(track).then((r) => alive && setState({ ...r, id }));
     return () => {
       alive = false;
     };

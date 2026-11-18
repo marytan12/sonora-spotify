@@ -1,5 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { prefetchQueue } from './prefetch.js';
 import { getToken, sp } from './spotify.js';
+
+const POLL_MS = 3000; // sondeo del estado de reproducción
+const EXPECT_MS = 3500; // tiempo que se respeta un cambio optimista mientras Spotify lo confirma
+
+/** Posición estimada ahora mismo a partir del último estado conocido */
+const positionOf = (pb) =>
+  pb ? Math.min(pb.item?.duration_ms || 0, pb.progress_ms + (pb.is_playing ? Date.now() - pb.fetchedAt : 0)) : 0;
 
 const Ctx = createContext(null);
 export const useApp = () => useContext(Ctx);
@@ -24,8 +32,15 @@ export function AppProvider({ children }) {
   const [playlists, setPlaylists] = useState([]);
   const [saved, setSaved] = useState({}); // uri -> boolean
   const [addTarget, setAddTarget] = useState(null); // uris para el modal "Añadir a playlist"
+  const [queue, setQueue] = useState([]); // próximas canciones (de Spotify)
   const playerRef = useRef(null);
   const sdkIdRef = useRef(null);
+  const playbackRef = useRef(null);
+  const queueRef = useRef([]);
+  const expectRef = useRef(null); // { uri, playing, until }: cambio optimista pendiente de confirmar
+  const retryRef = useRef(null);
+  playbackRef.current = playback;
+  queueRef.current = queue;
 
   useEffect(() => {
     const onHash = () => {
@@ -73,11 +88,75 @@ export function AppProvider({ children }) {
   const refreshPlayback = useCallback(async () => {
     try {
       const st = await sp.playback();
+      // Si hay un cambio optimista (siguiente, pausa…) se ignoran las respuestas que aún no lo
+      // reflejan: así la interfaz no "rebota" a la canción o estado anteriores
+      const e = expectRef.current;
+      if (e && Date.now() < e.until) {
+        const matches =
+          (!e.uri || st?.item?.uri === e.uri) &&
+          (e.playing === undefined || st?.is_playing === e.playing) &&
+          // Tras buscar, la posición que devuelve Spotify debe estar cerca de la pedida
+          (e.pos === undefined || (st && Math.abs(st.progress_ms - (e.pos + (st.is_playing ? Date.now() - e.at : 0))) < 2500));
+        if (!matches) {
+          clearTimeout(retryRef.current);
+          retryRef.current = setTimeout(refreshPlayback, 700);
+          return;
+        }
+      }
+      expectRef.current = null;
       setPlayback(st ? { ...st, fetchedAt: Date.now() } : null);
     } catch {
       /* silencioso */
     }
   }, []);
+
+  /** Aplica un cambio en la interfaz antes de que Spotify lo confirme */
+  const optimistic = useCallback((patch, expect) => {
+    setPlayback((pb) => (pb ? { ...pb, ...patch, fetchedAt: Date.now() } : pb));
+    expectRef.current = { ...expect, until: Date.now() + EXPECT_MS };
+  }, []);
+
+  /** Pasa a la siguiente canción de la cola sin esperar al sondeo */
+  const advance = useCallback(() => {
+    const next = queueRef.current[0];
+    if (!next) return false;
+    optimistic({ item: next, progress_ms: 0, is_playing: true }, { uri: next.uri });
+    setQueue((q) => q.slice(1));
+    return true;
+  }, [optimistic]);
+
+  // ---------- Cola: se pide al cambiar de canción y se precargan las siguientes ----------
+  const itemUri = playback?.item?.uri;
+  const refreshQueue = useCallback(async () => {
+    try {
+      const q = await sp.queue();
+      setQueue((q?.queue || []).filter(Boolean));
+    } catch {
+      /* no crítico */
+    }
+  }, []);
+  useEffect(() => {
+    if (!itemUri) return;
+    // Pequeña espera: justo tras un cambio, Spotify a veces devuelve aún la cola anterior
+    const t = setTimeout(refreshQueue, 900);
+    return () => clearTimeout(t);
+  }, [itemUri, refreshQueue]);
+  useEffect(() => prefetchQueue(queue), [queue]);
+
+  // ---------- Fin de canción: se adelanta el cambio en vez de esperar al siguiente sondeo ----------
+  useEffect(() => {
+    if (!playback?.is_playing || !playback.item) return;
+    const uri = playback.item.uri;
+    const remaining = playback.item.duration_ms - positionOf(playback);
+    const t = setTimeout(() => {
+      const pb = playbackRef.current;
+      if (!pb?.is_playing || pb.item?.uri !== uri) return;
+      if (pb.repeat_state !== 'track') advance();
+      setTimeout(refreshPlayback, 600);
+      setTimeout(refreshPlayback, 1800);
+    }, Math.max(0, remaining + 120));
+    return () => clearTimeout(t);
+  }, [playback, advance, refreshPlayback]);
 
   const refreshDevices = useCallback(async () => {
     try {
@@ -92,7 +171,7 @@ export function AppProvider({ children }) {
     sp.me().then(setUser).catch(fail);
     refreshPlaylists();
     refreshPlayback();
-    const t = setInterval(refreshPlayback, 4000);
+    const t = setInterval(refreshPlayback, POLL_MS);
     return () => clearInterval(t);
   }, [fail, refreshPlaylists, refreshPlayback]);
 
@@ -145,18 +224,38 @@ export function AppProvider({ children }) {
     (fn, okMsg) =>
       withDevice(fn)
         .then(() => okMsg && toast(okMsg))
-        .catch(fail),
-    [withDevice, toast, fail]
+        .catch((e) => {
+          // Si falla, se descarta el cambio optimista y se vuelve al estado real
+          expectRef.current = null;
+          refreshPlayback();
+          fail(e);
+        }),
+    [withDevice, toast, fail, refreshPlayback]
   );
 
   const actions = {
     playContext: (context_uri, offsetUri) =>
       run((d) => sp.play({ context_uri, offset: offsetUri ? { uri: offsetUri } : undefined }, d)),
     playUris: (uris, index = 0) => run((d) => sp.play({ uris, offset: { position: index } }, d)),
-    toggle: () => run((d) => (playback?.is_playing ? sp.pause(d) : sp.play({}, d))),
-    next: () => run(() => sp.next()),
+    toggle: () => {
+      const pb = playbackRef.current;
+      if (!pb?.item) return run((d) => sp.play({}, d));
+      const playing = !pb.is_playing;
+      optimistic({ is_playing: playing, progress_ms: positionOf(pb) }, { uri: pb.item.uri, playing });
+      return run((d) => (playing ? sp.play({}, d) : sp.pause(d)));
+    },
+    next: () => {
+      if (playbackRef.current?.repeat_state !== 'track') advance();
+      return run(() => sp.next());
+    },
     previous: () => run(() => sp.previous()),
-    seek: (ms) => run(() => sp.seek(Math.round(ms))),
+    seek: (ms) => {
+      const pb = playbackRef.current;
+      const pos = Math.round(ms);
+      // El estado global también se mueve: si no, el aviso de fin de canción saltaría a destiempo
+      if (pb?.item) optimistic({ progress_ms: pos }, { uri: pb.item.uri, pos, at: Date.now() });
+      return run(() => sp.seek(pos));
+    },
     volume: (v) => run(() => sp.volume(Math.round(v))),
     shuffle: () => run(() => sp.shuffle(!playback?.shuffle_state)),
     repeat: () => {
@@ -165,8 +264,50 @@ export function AppProvider({ children }) {
       return run(() => sp.repeat(nextState));
     },
     transfer: (id) => run(() => sp.transfer(id, true), 'Reproducción transferida'),
-    addToQueue: (uri) => run((d) => sp.addToQueue(uri, d), 'Añadido a la cola'),
+    addToQueue: (uri) => run((d) => sp.addToQueue(uri, d), 'Añadido a la cola').then(() => setTimeout(refreshQueue, 500)),
   };
+
+  // ---------- Título de la pestaña y controles multimedia del sistema ----------
+  const item = playback?.item;
+  useEffect(() => {
+    const who = item?.artists?.map((a) => a.name).join(', ') || item?.show?.name || '';
+    document.title = item ? `${item.name} – ${who}` : 'Sonora';
+    if (!('mediaSession' in navigator)) return;
+    navigator.mediaSession.metadata = item
+      ? new window.MediaMetadata({
+          title: item.name,
+          artist: who,
+          album: item.album?.name || item.show?.name || '',
+          artwork: (item.album?.images || item.images || []).map((i) => ({
+            src: i.url,
+            sizes: i.width ? `${i.width}x${i.height || i.width}` : undefined,
+            type: 'image/jpeg',
+          })),
+        })
+      : null;
+  }, [item]);
+  const actionsRef = useRef(actions);
+  actionsRef.current = actions;
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+    const handlers = {
+      play: () => !playbackRef.current?.is_playing && actionsRef.current.toggle(),
+      pause: () => playbackRef.current?.is_playing && actionsRef.current.toggle(),
+      nexttrack: () => actionsRef.current.next(),
+      previoustrack: () => actionsRef.current.previous(),
+      seekto: (d) => d.seekTime != null && actionsRef.current.seek(d.seekTime * 1000),
+    };
+    for (const [k, f] of Object.entries(handlers)) {
+      try {
+        navigator.mediaSession.setActionHandler(k, f);
+      } catch {
+        /* acción no admitida por el navegador */
+      }
+    }
+  }, []);
+  useEffect(() => {
+    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = playback?.is_playing ? 'playing' : 'paused';
+  }, [playback?.is_playing]);
 
   // ---------- Guardados ("Me gusta") ----------
   const checkSaved = useCallback(async (uris) => {
@@ -210,6 +351,8 @@ export function AppProvider({ children }) {
     sdkDeviceId,
     sdkError,
     actions,
+    queue,
+    refreshQueue,
     toast,
     fail,
     playlists,

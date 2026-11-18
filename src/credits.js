@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 
 const MB = 'https://musicbrainz.org/ws/2';
 const cache = new Map();
+const inflight = new Map();
 
 // MusicBrainz pide como máximo una petición por segundo
 let last = 0;
@@ -92,6 +93,26 @@ async function fetchCredits(track) {
   return { status: 'ok', roles: [...known, ...other], url: `https://musicbrainz.org/recording/${found.id}` };
 }
 
+function loadCredits(track) {
+  const id = track.id;
+  if (cache.has(id)) return Promise.resolve(cache.get(id));
+  if (inflight.has(id)) return inflight.get(id);
+  const p = fetchCredits(track)
+    .catch(() => ({ status: 'error' }))
+    .then((r) => {
+      inflight.delete(id);
+      if (r.status !== 'error') cache.set(id, r);
+      return r;
+    });
+  inflight.set(id, p);
+  return p;
+}
+
+/** Precarga los créditos (MusicBrainz admite 1 petición/s: usar solo para la siguiente canción) */
+export function prefetchCredits(track) {
+  if (track?.type === 'track' && track.id) loadCredits(track);
+}
+
 export function useCredits(track) {
   const id = track?.type === 'track' ? track.id : null;
   const [state, setState] = useState({ status: 'idle' });
@@ -100,12 +121,7 @@ export function useCredits(track) {
     if (cache.has(id)) return setState({ ...cache.get(id), id });
     let alive = true;
     setState({ status: 'loading', id });
-    fetchCredits(track)
-      .catch(() => ({ status: 'error' }))
-      .then((r) => {
-        if (r.status !== 'error') cache.set(id, r);
-        if (alive) setState({ ...r, id });
-      });
+    loadCredits(track).then((r) => alive && setState({ ...r, id }));
     return () => {
       alive = false;
     };

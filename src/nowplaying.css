@@ -261,3 +261,9 @@
   .lyrics.synced .line { transition: none; }
   .np-breath { animation: none; }
 }
+
+/* Fundidos al cambiar de canción */
+.np-bg-layer { position: absolute; inset: 0; animation: np-fade 0.8s ease both; }
+.np-fade { animation: np-fade 0.35s ease both; }
+@keyframes np-fade { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .np-bg-layer, .np-fade { animation: none; } }

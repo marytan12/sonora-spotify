@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useClock, useTick } from '../clock.js';
 import { useApp } from '../store.jsx';
 import { DeviceList, QueueList, Seek, Transport, Volume } from './controls.jsx';
-import NowPlaying from './NowPlaying.jsx';
+import NowPlaying from './nowplaying/NowPlaying.jsx';
 import { Artists, Cover, Icon, imgOf } from './ui.jsx';
 
 export default function PlayerBar() {

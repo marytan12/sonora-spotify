@@ -41,6 +41,22 @@ function extract(url) {
   });
 }
 
+const colorPending = new Map();
+function loadColor(url) {
+  if (colorCache.has(url)) return Promise.resolve(colorCache.get(url));
+  if (!colorPending.has(url)) {
+    colorPending.set(
+      url,
+      extract(url).then((c) => {
+        colorCache.set(url, c);
+        colorPending.delete(url);
+        return c;
+      })
+    );
+  }
+  return colorPending.get(url);
+}
+
 /** Devuelve el color dominante como "r g b" (para usar en rgb(var(--art))) */
 export function useArtColor(url) {
   const [color, setColor] = useState(() => (url ? colorCache.get(url) ?? null : null));
@@ -48,10 +64,7 @@ export function useArtColor(url) {
     if (!url) return setColor(null);
     if (colorCache.has(url)) return setColor(colorCache.get(url));
     let alive = true;
-    extract(url).then((c) => {
-      colorCache.set(url, c);
-      if (alive) setColor(c);
-    });
+    loadColor(url).then((c) => alive && setColor(c));
     return () => {
       alive = false;
     };
@@ -120,6 +133,22 @@ function extractPalette(url) {
   });
 }
 
+const palettePending = new Map();
+function loadPalette(url) {
+  if (paletteCache.has(url)) return Promise.resolve(paletteCache.get(url));
+  if (!palettePending.has(url)) {
+    palettePending.set(
+      url,
+      extractPalette(url).then((p) => {
+        paletteCache.set(url, p);
+        palettePending.delete(url);
+        return p;
+      })
+    );
+  }
+  return palettePending.get(url);
+}
+
 /** Devuelve 3 colores de la imagen como "rgb(r g b)", o null */
 export function useArtPalette(url) {
   const [palette, setPalette] = useState(() => (url ? paletteCache.get(url) ?? null : null));
@@ -127,10 +156,7 @@ export function useArtPalette(url) {
     if (!url) return setPalette(null);
     if (paletteCache.has(url)) return setPalette(paletteCache.get(url));
     let alive = true;
-    extractPalette(url).then((p) => {
-      paletteCache.set(url, p);
-      if (alive) setPalette(p);
-    });
+    loadPalette(url).then((p) => alive && setPalette(p));
     return () => {
       alive = false;
     };
@@ -146,18 +172,61 @@ const canvasCache = new Map();
 
 export const canvasEnabled = !!CANVAS_API;
 
-export async function getCanvasUrl(trackId) {
-  if (!CANVAS_API || !trackId) return null;
-  if (canvasCache.has(trackId)) return canvasCache.get(trackId);
+const canvasPending = new Map();
+
+async function fetchCanvas(trackId) {
   try {
     const res = await fetch(`${CANVAS_API}?trackId=${encodeURIComponent(trackId)}`);
     const data = res.ok ? await res.json() : null;
-    const url = data?.canvasesList?.[0]?.canvasUrl || data?.canvasUrl || null;
-    canvasCache.set(trackId, url);
-    return url;
+    return data?.canvasesList?.[0]?.canvasUrl || data?.canvasUrl || null;
   } catch {
-    canvasCache.set(trackId, null);
     return null;
+  }
+}
+
+/** URL del Canvas de una canción (o null); comparte la petición si ya está en curso */
+export function getCanvasUrl(trackId) {
+  if (!CANVAS_API || !trackId) return Promise.resolve(null);
+  if (canvasCache.has(trackId)) return Promise.resolve(canvasCache.get(trackId));
+  if (!canvasPending.has(trackId)) {
+    canvasPending.set(
+      trackId,
+      fetchCanvas(trackId).then((url) => {
+        canvasCache.set(trackId, url);
+        canvasPending.delete(trackId);
+        return url;
+      })
+    );
+  }
+  return canvasPending.get(trackId);
+}
+
+// ---------- Precarga (canciones de la cola) ----------
+/** Descarga y decodifica la imagen y calcula sus colores para que el cambio sea instantáneo */
+export function primeArt(url, { palette = true } = {}) {
+  if (!url) return;
+  const img = new Image();
+  img.decoding = 'async';
+  img.src = url;
+  loadColor(url);
+  if (palette) loadPalette(url);
+}
+
+// Vídeos de Canvas ya descargados (como mucho 3 a la vez para no gastar memoria)
+const warmed = new Map();
+export function warmVideo(url) {
+  if (!url || warmed.has(url)) return;
+  const v = document.createElement('video');
+  v.muted = true;
+  v.preload = 'auto';
+  v.src = url;
+  v.load();
+  warmed.set(url, v);
+  while (warmed.size > 3) {
+    const [old, el] = warmed.entries().next().value;
+    el.removeAttribute('src');
+    el.load();
+    warmed.delete(old);
   }
 }
 

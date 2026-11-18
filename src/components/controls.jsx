@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
-import { sp } from '../spotify.js';
 import { useApp } from '../store.jsx';
-import { Cover, Icon, Loading, fmt, imgOf } from './ui.jsx';
+import { Cover, Icon, fmt, imgOf } from './ui.jsx';
 
 export function Seek({ progress, duration, onSeek }) {
   const [drag, setDrag] = useState(null);
@@ -96,18 +95,14 @@ export function Volume() {
 }
 
 export function QueueList() {
-  const { playback, actions } = useApp();
-  const [q, setQ] = useState(null);
-  const [err, setErr] = useState(null);
+  const { queue, refreshQueue, actions } = useApp();
   useEffect(() => {
-    sp.queue().then(setQ).catch(setErr);
-  }, [playback?.item?.uri]);
-  if (err) return <p className="muted">{err.message}</p>;
-  if (!q) return <Loading />;
+    refreshQueue();
+  }, [refreshQueue]);
   return (
     <div className="queue">
-      {q.queue?.length ? (
-        q.queue.map((t, i) => (
+      {queue.length ? (
+        queue.map((t, i) => (
           <button key={t.uri + i} className="q-item" onClick={() => actions.playUris([t.uri])} title="Reproducir ahora">
             <Cover src={imgOf(t.album || t, 'sm')} size={44} />
             <span className="tl-text">
