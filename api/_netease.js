@@ -43,9 +43,10 @@ async function search(name, artist, durationMs) {
     if (sn === n) score += 4;
     else if (sn.includes(n) || n.includes(sn)) score += 1;
     else continue;
+    // El artista tiene que coincidir: una canción homónima de otro artista no vale nunca
     if (artists.some((x) => x === a)) score += 3;
-    else if (artists.some((x) => x && (x.includes(a) || a.includes(x)))) score += 1;
-    else score -= 3;
+    else if (a && artists.some((x) => x && (x.includes(a) || a.includes(x)))) score += 1;
+    else continue;
     if (diff !== null) score += diff <= 2 ? 3 : diff <= 5 ? 1 : diff <= 10 ? -2 : -8;
     if (!wantsVersion && VERSION_WORDS.test(s.name)) score -= 3;
     if (!best || score > best.score) best = { score, id: s.id, name: s.name, artist: (s.artists || s.ar || []).map((x) => x.name).join(', '), duration: s.duration, diff };

@@ -577,6 +577,8 @@ export function AppProvider({ children }) {
       if (!pb?.item) return run(fadePlay(fadeIn(), (d) => sp.play({}, d)));
       const playing = !pb.is_playing;
       const at = Date.now();
+      // Antes del cambio optimista: después, la reproducción ya figura como sonando y no habría subida suave
+      const fade = playing ? fadeIn() : null;
       // La posición se calcula sobre la canción que haya debajo en ese momento (por si cambia la base)
       const tx = addOp(
         (st) =>
@@ -596,7 +598,7 @@ export function AppProvider({ children }) {
             : st,
         { playing }
       );
-      return run(playing ? fadePlay(fadeIn(), (d) => sp.play({}, d)) : (d) => sp.pause(d), null, tx);
+      return run(playing ? fadePlay(fade, (d) => sp.play({}, d)) : (d) => sp.pause(d), null, tx);
     },
     next: () => {
       const tx = playbackRef.current?.repeat_state !== 'track' ? advance() : null;

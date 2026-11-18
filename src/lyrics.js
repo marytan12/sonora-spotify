@@ -164,6 +164,22 @@ function toResult(data, source, secs) {
 }
 
 // ---------- NetEase ----------
+const normName = (s = '') =>
+  s
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim();
+/** true si el artista de Spotify aparece entre los de NetEase (separados por comas) */
+function sameArtist(spotifyArtist, neteaseArtists) {
+  const a = normName(spotifyArtist);
+  if (!a) return false;
+  return String(neteaseArtists || '')
+    .split(',')
+    .map(normName)
+    .some((x) => x && (x === a || x.includes(a) || a.includes(x)));
+}
 async function fetchNetease(track, id) {
   const q = id
     ? { id }
@@ -176,10 +192,11 @@ async function fetchNetease(track, id) {
  * Estado de la letra a partir de NetEase. `maxDiff`: diferencia de duración admitida (s);
  * `words`: exigir la versión palabra a palabra.
  */
-function neteaseResult(ne, source, secs, { maxDiff = 3, words = false } = {}) {
+function neteaseResult(ne, source, secs, { maxDiff = 3, words = false, artist = '' } = {}) {
   if (!ne) return null;
   const diff = ne.diff ?? (ne.duration && secs ? Math.abs(ne.duration / 1000 - secs) : null);
   if (source !== 'manual' && (diff == null || diff > maxDiff)) return null;
+  if (source !== 'manual' && !sameArtist(artist, ne.artist)) return null;
   const meta = { id: `ne:${ne.id}`, provider: 'netease', source, name: ne.name, artist: ne.artist, diff, suspicious: source !== 'manual' && diff > 3 };
   if (ne.instrumental && !ne.lrc && !ne.yrc) return words ? null : { status: 'instrumental', meta };
   const yrc = ne.yrc ? parseYrc(ne.yrc) : [];
@@ -240,13 +257,14 @@ async function fetchLyrics(track) {
   ]);
 
   // 1. Palabra a palabra con la misma duración: la sincronía más fina
-  const word = neteaseResult(ne, 'netease', secs, { maxDiff: 2, words: true });
+  const artist = track.artists?.[0]?.name || '';
+  const word = neteaseResult(ne, 'netease', secs, { maxDiff: 2, words: true, artist });
   if (word) return word;
   // 2. LRCLIB exacta (por nombre, álbum y duración)
   const ex = exact && toResult(exact, 'exact', secs);
   if (ex && (ex.status === 'synced' || ex.status === 'instrumental')) return ex;
   // 3. NetEase por líneas con la misma duración
-  const line = neteaseResult(ne, 'netease', secs, { maxDiff: 3 });
+  const line = neteaseResult(ne, 'netease', secs, { maxDiff: 3, artist });
   if (line) return line;
   if (ex) return ex; // solo texto, sin sincronizar
   // 4. Búsqueda aproximada en LRCLIB: sin sufijos tipo "- Remastered" y con la duración más parecida
@@ -259,7 +277,7 @@ async function fetchLyrics(track) {
   const found = list[0] && toResult(list[0], 'search', secs);
   if (found?.status === 'synced') return found;
   // 5. NetEase con una duración algo distinta (se avisa de que puede no ser esta versión)
-  const loose = neteaseResult(ne, 'netease', secs, { maxDiff: 8 });
+  const loose = neteaseResult(ne, 'netease', secs, { maxDiff: 8, artist });
   if (loose) return loose;
   if (found) return found;
   if (lrclibError) throw lrclibError; // sin resultado y con un fallo temporal: se podrá reintentar
