@@ -44,8 +44,12 @@ export function AppProvider({ children }) {
   const expectRef = useRef(null); // { uri, playing, until }: cambio optimista pendiente de confirmar
   const retryRef = useRef(null);
   const lastItemRef = useRef(null); // última canción vista (para el historial)
-  const snapRef = useRef(null); // historial antes de un cambio de canción optimista, para deshacerlo
+  // Estado completo (reproducción, cola, historial) antes del primer cambio optimista sin confirmar:
+  // permite deshacerlo en local aunque Spotify no responda
+  const snapRef = useRef(null);
   const rollbackRef = useRef(() => {});
+  const expireRef = useRef(null); // temporizador que deshace el cambio si no se confirma a tiempo
+  const rolledBackRef = useRef(null); // canción cuyo paso automático a la siguiente se deshizo
   playbackRef.current = playback;
   queueRef.current = queue;
   historyRef.current = history;
@@ -110,11 +114,14 @@ export function AppProvider({ children }) {
           retryRef.current = setTimeout(refreshPlayback, 700);
           return;
         }
-        // Confirmado: el cambio se da por bueno. Sin confirmar a tiempo: se deshace el historial
-        if (matches) snapRef.current = null;
-        else rollbackRef.current();
+        // Confirmado: el cambio se da por bueno. Sin confirmar a tiempo: se deshace
+        if (matches) {
+          snapRef.current = null;
+          rolledBackRef.current = null;
+        } else rollbackRef.current();
       }
       expectRef.current = null;
+      clearTimeout(expireRef.current);
       setPlayback(st ? { ...st, fetchedAt: Date.now() } : null);
     } catch {
       /* silencioso */
@@ -123,10 +130,24 @@ export function AppProvider({ children }) {
 
   /** Aplica un cambio en la interfaz antes de que Spotify lo confirme */
   const optimistic = useCallback((patch, expect) => {
-    // Se guarda el historial previo al primer cambio de canción aún sin confirmar
-    if (patch.item && !snapRef.current) snapRef.current = { history: historyRef.current, last: lastItemRef.current };
+    if (!snapRef.current) {
+      snapRef.current = {
+        playback: playbackRef.current,
+        queue: queueRef.current,
+        history: historyRef.current,
+        last: lastItemRef.current,
+      };
+    }
     setPlayback((pb) => (pb ? { ...pb, ...patch, fetchedAt: Date.now() } : pb));
-    expectRef.current = { ...expect, until: Date.now() + EXPECT_MS };
+    const e = { ...expect, until: Date.now() + EXPECT_MS };
+    expectRef.current = e;
+    // Si en el plazo no llega la confirmación (o fallan las consultas), se deshace igualmente
+    clearTimeout(expireRef.current);
+    expireRef.current = setTimeout(() => {
+      if (expectRef.current !== e) return;
+      expectRef.current = null;
+      rollbackRef.current();
+    }, EXPECT_MS + 250);
   }, []);
 
   /** Pasa a la siguiente canción de la cola sin esperar al sondeo */
@@ -164,6 +185,8 @@ export function AppProvider({ children }) {
       setHistory((h) => [last, ...h.filter((x) => x.uri !== last.uri && x.uri !== it.uri)].slice(0, 20));
     }
     if (it) lastItemRef.current = it;
+    // Al sonar otra canción, deja de bloquearse el paso automático de la que se deshizo
+    if (it && it.uri !== rolledBackRef.current) rolledBackRef.current = null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [itemUri]);
   // Al entrar, el historial empieza con lo último que se escuchó en Spotify
@@ -188,7 +211,8 @@ export function AppProvider({ children }) {
     const t = setTimeout(() => {
       const pb = playbackRef.current;
       if (!pb?.is_playing || pb.item?.uri !== uri) return;
-      if (pb.repeat_state !== 'track') advance();
+      // Si ya se deshizo el paso automático de esta canción (p. ej. sin conexión), no se repite en bucle
+      if (pb.repeat_state !== 'track' && rolledBackRef.current !== uri) advance();
       setTimeout(refreshPlayback, 600);
       setTimeout(refreshPlayback, 1800);
     }, Math.max(0, remaining + 120));
@@ -283,10 +307,15 @@ export function AppProvider({ children }) {
   rollbackRef.current = () => {
     const snap = snapRef.current;
     snapRef.current = null;
+    clearTimeout(expireRef.current);
     if (snap) {
+      setPlayback(snap.playback);
+      setQueue(snap.queue);
       setHistory(snap.history);
       lastItemRef.current = snap.last;
+      rolledBackRef.current = snap.playback?.item?.uri ?? null;
     }
+    // Después se intenta sincronizar con Spotify; si falla, se queda la copia restaurada
     refreshQueue();
   };
 
