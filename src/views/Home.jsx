@@ -7,7 +7,7 @@ import { useApp } from '../store.jsx';
 const RANGES = [
   ['short_term', 'Últimas 4 semanas'],
   ['medium_term', 'Últimos 6 meses'],
-  ['long_term', 'Todo el tiempo'],
+  ['long_term', 'Último año'],
 ];
 
 export function RangePicker({ value, onChange }) {

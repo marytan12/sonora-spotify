@@ -47,7 +47,7 @@ Define la variable de entorno `VITE_SPOTIFY_CLIENT_ID` en el proyecto.
 ## Tu resumen
 
 En «Resumen»: tu artista y tu canción nº 1, tus top 5, tu década favorita, la variedad de artistas, a qué hora
-del día escuchas más, lo que tienes en bucle y tus géneros, por periodo (4 semanas, 6 meses o desde siempre).
+del día escuchas más, lo que tienes en bucle y tus géneros, por periodo (4 semanas, 6 meses o el último año, que es lo que Spotify calcula como largo plazo).
 El botón «Compartir resumen» genera una tarjeta en imagen (1080×1920) para descargarla o compartirla.
 
 ## App para Windows 11

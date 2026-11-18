@@ -57,7 +57,7 @@ export default function Summary() {
       ) : !s?.topArtist && !s?.topTrack ? (
         <div className="empty">
           <p>Aún no hay suficiente música escuchada en este periodo para hacer tu resumen.</p>
-          <p className="muted small">Prueba con «Últimos 6 meses» o «Desde siempre».</p>
+          <p className="muted small">Prueba con «Últimos 6 meses» o «Último año».</p>
         </div>
       ) : (
         <div className="sum-grid">

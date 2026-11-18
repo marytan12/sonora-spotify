@@ -452,8 +452,8 @@ input[type='range']::-moz-range-thumb { width: 13px; height: 13px; border: 0; bo
 /* Cristal opaco: lo decide appearance.js (ajuste de la app o "Reducir transparencia" del sistema) */
 /* Fondo opaco explícito: se impone también a las superficies con fondo propio (aviso, tarjeta de acceso) */
 .glass-reduced :is(.glass, .player, .menu, .modal, .np-tabs, .popover-panel, .topnav, .mobile-nav, .np-notice, .login-card, .np-top .icon-btn.round, .fab) {
-  --glass-tint: rgb(30 30 36 / 0.96);
-  background: rgb(30 30 36 / 0.96);
+  --glass-tint: rgb(30 30 36);
+  background: rgb(30 30 36);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }

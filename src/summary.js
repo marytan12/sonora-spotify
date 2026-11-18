@@ -4,7 +4,8 @@
 export const RANGES = [
   ['short_term', 'Últimas 4 semanas', 'del último mes'],
   ['medium_term', 'Últimos 6 meses', 'de los últimos 6 meses'],
-  ['long_term', 'Desde siempre', 'de siempre'],
+  // Spotify calcula este rango con aproximadamente el último año de escuchas
+  ['long_term', 'Último año', 'del último año'],
 ];
 
 const MOMENTS = [
