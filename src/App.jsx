@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useArtColor } from './art.js';
+import { useGlassHighlight, useLiquidGlass } from './glass.js';
 import PlayerBar from './components/PlayerBar.jsx';
 import { AddToPlaylistModal, CreatePlaylistModal } from './components/Sidebar.jsx';
 import { Cover, Icon, imgOf } from './components/ui.jsx';
@@ -71,8 +72,35 @@ const NAV = [
   ['library', 'Biblioteca', 'library'],
 ];
 
+/** true al bajar por la página (más de 80 px) y false al volver a subir, como la barra de iOS */
+function useCompactOnScroll() {
+  const [compact, setCompact] = useState(false);
+  useEffect(() => {
+    let lastY = window.scrollY;
+    const onScroll = () => {
+      const y = window.scrollY;
+      if (Math.abs(y - lastY) < 6) return;
+      setCompact(y > 80 && y > lastY);
+      lastY = y;
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+  return compact;
+}
+
 function Shell() {
   const { route, user, playback } = useApp();
+  const navRef = useRef(null);
+  const mobileRef = useRef(null);
+  const compact = useCompactOnScroll();
+  useLiquidGlass(navRef);
+  useLiquidGlass(mobileRef);
+  useGlassHighlight();
+  // Al cambiar de sección, la barra vuelve a su tamaño normal
+  useEffect(() => {
+    window.scrollTo({ top: 0 });
+  }, [route.name]);
   const [creating, setCreating] = useState(false);
   const View = VIEWS[route.name] || Home;
   const art = imgOf(playback?.item?.album || playback?.item, 'sm');
@@ -82,7 +110,7 @@ function Shell() {
   return (
     <div className="app" style={{ '--ambient': ambient || '110 90 170' }}>
       <div className="ambient" aria-hidden="true" />
-      <header className="topnav glass">
+      <header ref={navRef} className={`topnav glass lg-track ${compact ? 'compact' : ''}`}>
         <a className="brand" href="#/home">
           <Logo /> <span>Sonora</span>
         </a>
@@ -107,7 +135,7 @@ function Shell() {
         <View key={route.name + (route.id || '')} />
       </main>
       <PlayerBar />
-      <nav className="mobile-nav glass" aria-label="Secciones">
+      <nav ref={mobileRef} className="mobile-nav glass lg-track" aria-label="Secciones">
         {NAV.map(([name, label, icon]) => (
           <a key={name} href={`#/${name}`} className={active === name ? 'on' : ''}>
             <Icon name={icon} /> {label}

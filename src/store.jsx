@@ -76,7 +76,7 @@ export function AppProvider({ children }) {
         e?.status === 404 && /device/i.test(e.message)
           ? 'No hay ningún dispositivo activo. Abre Spotify o activa el reproductor web.'
           : e?.status === 403
-            ? `Spotify no permite esta acción (${e.message}). Puede requerir Premium.`
+            ? `Spotify ha rechazado esta acción (${e.message}).`
             : e?.message || String(e);
       toast(msg, 'error');
     },
@@ -339,7 +339,7 @@ export function AppProvider({ children }) {
     };
   }, [refreshPlayback, refreshQueue]);
 
-  // ---------- Web Playback SDK: convierte el navegador en un dispositivo (requiere Premium) ----------
+  // ---------- Web Playback SDK: convierte el navegador en un dispositivo de Spotify ----------
   useEffect(() => {
     window.onSpotifyWebPlaybackSDKReady = () => {
       const player = new window.Spotify.Player({
@@ -353,7 +353,7 @@ export function AppProvider({ children }) {
       });
       player.addListener('not_ready', () => setSdkDeviceId(null));
       player.addListener('player_state_changed', () => setTimeout(refreshPlayback, 300));
-      player.addListener('account_error', () => setSdkError('El reproductor web requiere Spotify Premium.'));
+      player.addListener('account_error', () => setSdkError('No se ha podido activar el reproductor de este navegador con esta cuenta.'));
       player.addListener('initialization_error', ({ message }) => setSdkError(message));
       player.addListener('authentication_error', ({ message }) => setSdkError(message));
       player.connect();

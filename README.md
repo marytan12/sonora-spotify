@@ -6,7 +6,7 @@ Cliente web completo para Spotify construido con **React + Vite** sobre la **Spo
 
 - **Login seguro con PKCE** (sin client secret en el navegador) y renovación automática del token
 - **Reproductor completo**: play/pausa, anterior/siguiente, barra de progreso con seek, volumen y silencio, aleatorio, repetir (todo / canción)
-- **Reproductor web integrado** (Web Playback SDK): el navegador se convierte en un dispositivo de Spotify (requiere Premium)
+- **Reproductor web integrado** (Web Playback SDK): el navegador se convierte en un dispositivo de Spotify
 - **Dispositivos**: lista de dispositivos conectados y transferencia de la reproducción
 - **Cola**: ver la cola y añadir canciones
 - **Búsqueda** de canciones, artistas, álbumes, playlists, podcasts y episodios con filtros y paginación
@@ -54,6 +54,6 @@ Define la variable de entorno `VITE_SPOTIFY_CLIENT_ID` en el proyecto.
 
 ## Limitaciones de Spotify (modo desarrollo)
 
-- El dueño de la app necesita Spotify **Premium**; reproducir en el navegador también requiere Premium.
+- La cuenta propietaria de la app en el dashboard de Spotify necesita Premium (requisito de Spotify para el modo desarrollo); la app está pensada para usuarios Premium.
 - Solo se ven las canciones de playlists propias o colaborativas.
 - "Top tracks" del artista, novedades y categorías ya no están disponibles: la página del artista usa la búsqueda.

@@ -144,7 +144,7 @@
 .np-tabs { justify-self: center; display: flex; gap: 4px; padding: 5px; border-radius: 999px; margin: 8px 0 16px; }
 .np-tabs button { display: flex; align-items: center; gap: 6px; border: 0; background: none; padding: 8px 14px; border-radius: 999px; color: rgb(255 255 255 / 0.75); font-size: 0.85rem; font-weight: 600; }
 .np-tabs button:hover { color: #fff; }
-.np-tabs button.on { color: #111; }
+.np-tabs button.on { color: #fff; }
 
 /* Ajustes */
 .np-settings { padding: 4px 4px 24px; display: flex; flex-direction: column; gap: 18px; max-width: 560px; }
@@ -279,3 +279,9 @@
 .np-notice .np-notice-close:hover { color: #fff; }
 .nowplaying:has(.np-notice) .np-source { visibility: hidden; }
 @media (max-width: 760px) { .np-notice { top: 64px; max-width: calc(100vw - 24px); } }
+
+/* Pantallas estrechas: cada fila mide lo que su contenido (si no, la cuadrícula las comprime
+   al alto disponible y el panel lateral se dibuja encima de los controles) */
+@media (max-width: 1000px) {
+  .np-body { grid-auto-rows: max-content; }
+}

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useArtColor, useArtPalette, useCanvas } from '../../art.js';
+import { useLiquidGlass } from '../../glass.js';
 import { useTick } from '../../clock.js';
 import { go, useApp } from '../../store.jsx';
 import { DeviceList, QueueList, Seek, Transport, Volume } from '../controls.jsx';
@@ -60,6 +61,8 @@ export default function NowPlaying({ onClose, clock }) {
   useEffect(() => setCanvasNoticeHidden(false), [item?.id]);
   const progress = useTick(clock.now, playback?.is_playing, 150);
   const root = useRef(null);
+  const tabsRef = useRef(null);
+  useLiquidGlass(tabsRef, { bezel: 14, scale: 28 });
   // En karaoke las barras siempre se esconden en reposo; fuera, solo si el usuario lo activa
   const idle = useIdle((prefs.autoHide || karaoke) && !!playback?.is_playing && (karaoke || prefs.panel !== 'settings'));
   // Reloj de la letra con el ajuste de sincronía del usuario
@@ -303,7 +306,7 @@ export default function NowPlaying({ onClose, clock }) {
         )}
       </div>
 
-      <nav className="np-tabs" aria-label="Panel lateral">
+      <nav ref={tabsRef} className="np-tabs lg-track" aria-label="Panel lateral">
         {[
           ['lyrics', 'Letra', 'lyrics'],
           ['queue', 'Cola', 'queue'],

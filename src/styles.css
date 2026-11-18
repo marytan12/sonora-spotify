@@ -325,60 +325,131 @@ input[type='range']::-moz-range-thumb { width: 13px; height: 13px; border: 0; bo
 }
 
 /* =========================================================
-   Liquid glass: cristal translúcido con refracción, borde
-   especular y luz interior. La refracción (filtro SVG) solo
-   la aplican los navegadores Chromium; el resto ve el desenfoque.
+   Liquid glass (estilo iOS 26 / macOS 26)
+   - Cristal claro: poco desenfoque y mucha saturación; lo de detrás se
+     sigue reconociendo. En Chromium, el borde refracta como una lente
+     (glass.js); en el resto queda el desenfoque.
+   - Brillo especular arriba a la izquierda, reflejo suave abajo a la
+     derecha y luz interior; un reflejo extra sigue al puntero.
+   - Formas de cápsula y botones que rebotan al pulsarlos.
    ========================================================= */
+:root {
+  --glass-fill: linear-gradient(180deg, rgb(255 255 255 / 0.11), rgb(255 255 255 / 0.04));
+  --glass-tint: rgb(22 22 28 / 0.32);
+  --glass-shadow:
+    inset 1.5px 1.5px 1px -1px rgb(255 255 255 / 0.6),
+    inset -1px -1px 1px -0.5px rgb(255 255 255 / 0.22),
+    inset 0 0 0 0.5px rgb(255 255 255 / 0.12),
+    inset 0 0 22px rgb(255 255 255 / 0.05),
+    0 10px 30px -10px rgb(0 0 0 / 0.5),
+    0 1px 2px rgb(0 0 0 / 0.18);
+  --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
 .np-tabs, .login-card, .modal { position: relative; }
-.glass, .player, .menu, .modal, .np-tabs, .popover-panel, .login-card, .fab, .np-top .icon-btn.round {
-  background: linear-gradient(135deg, rgb(255 255 255 / 0.13), rgb(255 255 255 / 0.04) 45%, rgb(255 255 255 / 0.07));
-  backdrop-filter: blur(22px) saturate(190%) brightness(1.06);
-  -webkit-backdrop-filter: blur(22px) saturate(190%) brightness(1.06);
+.glass, .player, .menu, .modal, .np-tabs, .popover-panel, .login-card, .fab, .np-top .icon-btn.round, .np-notice {
+  background: var(--glass-fill), var(--glass-tint);
+  backdrop-filter: blur(12px) saturate(180%) brightness(1.06);
+  -webkit-backdrop-filter: blur(12px) saturate(180%) brightness(1.06);
   border: 0;
-  box-shadow:
-    inset 0 1px 0.5px rgb(255 255 255 / 0.45),
-    inset 0 -1px 1px rgb(255 255 255 / 0.1),
-    inset 0 0 0 0.5px rgb(255 255 255 / 0.18),
-    inset 0 0 24px rgb(255 255 255 / 0.04),
-    0 16px 44px -12px rgb(0 0 0 / 0.55);
+  box-shadow: var(--glass-shadow);
+  isolation: isolate;
 }
-/* Barras fijas: cristal esmerilado más denso para que lo de detrás no distraiga */
-.topnav, .player, .mobile-nav {
-  background: linear-gradient(135deg, rgb(52 52 60 / 0.62), rgb(26 26 32 / 0.74));
-  backdrop-filter: blur(34px) saturate(170%);
-  -webkit-backdrop-filter: blur(34px) saturate(170%);
-}
-/* Borde especular: brillo en las esquinas, como luz sobre el cristal */
+/* Barras fijas: un poco más de tinte para que el texto se lea sobre cualquier portada */
+.topnav, .player, .mobile-nav { --glass-tint: rgb(20 20 26 / 0.46); }
+/* Superficies con mucho texto (menús, modales, paneles): más densas, como las hojas de iOS */
+.menu, .modal, .popover-panel { --glass-tint: rgb(30 30 36 / 0.62); backdrop-filter: blur(28px) saturate(170%); -webkit-backdrop-filter: blur(28px) saturate(170%); }
+/* Con refracción de borde (Chromium) se puede bajar el tinte: el borde ya separa la pieza */
+.lg-refract { --glass-tint: rgb(20 20 26 / 0.3); }
+.popover-panel.lg-refract { --glass-tint: rgb(30 30 36 / 0.55); }
+
+/* Borde especular: más intenso en la esquina superior izquierda, como la luz sobre una lente */
 .glass::before, .player::before, .menu::before, .modal::before, .np-tabs::before, .popover-panel::before, .login-card::before {
   content: '';
   position: absolute;
   inset: 0;
   border-radius: inherit;
   padding: 1px;
-  background: linear-gradient(135deg, rgb(255 255 255 / 0.7), rgb(255 255 255 / 0.05) 30%, rgb(255 255 255 / 0) 60%, rgb(255 255 255 / 0.35));
+  background: linear-gradient(140deg, rgb(255 255 255 / 0.75), rgb(255 255 255 / 0.08) 28%, rgb(255 255 255 / 0) 55%, rgb(255 255 255 / 0.08) 78%, rgb(255 255 255 / 0.4));
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
   pointer-events: none;
+  z-index: 1;
 }
-.menu, .modal { background: linear-gradient(135deg, rgb(60 60 70 / 0.72), rgb(40 40 48 / 0.78)); }
-.popover-panel { background: linear-gradient(135deg, rgb(50 50 58 / 0.62), rgb(30 30 36 / 0.7)); }
-.tabs { background: rgb(0 0 0 / 0.18); box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.25); }
-.tabs a.on, .np-tabs button.on, .chip.on {
-  background: linear-gradient(180deg, rgb(255 255 255 / 0.98), rgb(232 232 238 / 0.94));
-  box-shadow: inset 0 1px 0 #fff, 0 2px 8px rgb(0 0 0 / 0.25);
+/* Reflejo que sigue al puntero (las piezas .lg-track reciben --mx / --my) */
+.lg-track::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(160px circle at var(--mx, 25%) var(--my, 0%), rgb(255 255 255 / 0.14), transparent 70%);
+  opacity: 0;
+  transition: opacity 0.35s ease;
+  z-index: 0;
 }
+.lg-track:hover::after { opacity: 1; }
+.topnav, .player, .mobile-nav, .popover-panel { position: relative; }
+.player, .mobile-nav, .popover-panel { position: fixed; }
+.topnav { position: sticky; }
+
+/* Formas de cápsula */
+.player { border-radius: 30px; }
+.mobile-nav { border-radius: 999px; }
+.popover-panel { border-radius: 26px; }
+.menu { border-radius: 18px; }
+.modal { border-radius: 28px; }
+
+/* Selección: burbuja de cristal más clara, no una píldora blanca opaca */
+.tabs { background: transparent; box-shadow: none; padding: 0; gap: 2px; }
+.tabs a, .np-tabs button, .mobile-nav a { position: relative; z-index: 2; transition: color 0.2s, background 0.25s, transform 0.45s var(--spring); }
+.tabs a.on, .np-tabs button.on, .mobile-nav a.on {
+  color: #fff;
+  background: rgb(255 255 255 / 0.17);
+  box-shadow: inset 1px 1px 0.5px -0.5px rgb(255 255 255 / 0.7), inset -1px -1px 0.5px -0.5px rgb(255 255 255 / 0.22), 0 2px 10px rgb(0 0 0 / 0.22);
+  font-weight: 700;
+}
+.tabs a.on .icon, .np-tabs button.on .icon, .mobile-nav a.on .icon { color: rgb(var(--ambient)); filter: brightness(1.7) saturate(1.2); }
+.mobile-nav a { padding: 6px 18px; border-radius: 999px; }
+.chip.on { background: #fff; color: #111; box-shadow: 0 2px 10px rgb(0 0 0 / 0.25); }
+
+/* Botones principales: sólidos, como en Apple (el cristal es para la navegación) */
 .play-btn, .btn.primary, .play-big {
-  background: linear-gradient(180deg, #fff, #e6e6ec);
-  box-shadow: inset 0 1px 0 #fff, inset 0 -2px 4px rgb(0 0 0 / 0.08), 0 6px 18px -4px rgb(0 0 0 / 0.45);
+  background: #fff;
+  box-shadow: inset 0 -1px 2px rgb(0 0 0 / 0.08), 0 6px 18px -6px rgb(0 0 0 / 0.5);
 }
 .btn:not(.primary):not(.outline), .chip:not(.on), .icon-btn.round {
-  background: linear-gradient(180deg, rgb(255 255 255 / 0.14), rgb(255 255 255 / 0.06));
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.2), inset 0 0 0 0.5px rgb(255 255 255 / 0.12);
+  background: var(--glass-fill), rgb(255 255 255 / 0.04);
+  box-shadow: inset 1px 1px 0.5px -0.5px rgb(255 255 255 / 0.5), inset -1px -1px 0.5px -0.5px rgb(255 255 255 / 0.16), inset 0 0 0 0.5px rgb(255 255 255 / 0.1);
 }
 .fab { color: #fff; }
-.toast { background: linear-gradient(180deg, rgb(255 255 255 / 0.96), rgb(236 236 242 / 0.92)); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
 
+/* Rebote al pulsar (muelle) */
+.icon-btn, .btn, .play-btn, .play-big, .chip, .fab, .np-art, .opt-row button, .swatch {
+  transition: transform 0.45s var(--spring), background 0.2s, color 0.2s, box-shadow 0.2s, opacity 0.2s;
+}
+:is(.icon-btn, .btn, .play-btn, .play-big, .chip, .fab, .tabs a, .np-tabs button, .mobile-nav a, .opt-row button, .swatch):active {
+  transform: scale(0.9);
+  transition-duration: 0.12s;
+}
+.play-btn:hover, .play-big:hover { transform: scale(1.05); }
+
+/* Barra superior que se compacta al bajar (como la barra de pestañas de iOS 26) */
+.topnav {
+  max-width: 2000px;
+  transition: max-width 0.55s var(--spring), height 0.4s var(--spring), margin 0.4s ease, padding 0.4s ease;
+}
+.topnav.compact { max-width: 470px; height: 52px; margin-left: auto; margin-right: auto; padding: 0 8px 0 12px; }
+.topnav.compact .brand > span, .topnav.compact .tabs a > span:not(.icon) { display: none; }
+.topnav.compact .tabs a { padding: 8px 12px; }
+.topnav .brand span, .topnav .tabs a span { white-space: nowrap; }
+
+.toast { background: rgb(245 245 247 / 0.92); backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%); box-shadow: 0 10px 30px rgb(0 0 0 / 0.35); }
+
+@media (prefers-reduced-transparency: reduce) {
+  .glass, .player, .menu, .modal, .np-tabs, .popover-panel, .topnav, .mobile-nav { --glass-tint: rgb(30 30 36 / 0.96); backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .lg-track::after { display: none; }
+}
 
 /* Iconos (Ionicons): heredan el color del texto */
 .icon { display: inline-block; flex-shrink: 0; line-height: 0; }

@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useClock, useTick } from '../clock.js';
+import { useLiquidGlass } from '../glass.js';
 import { useApp } from '../store.jsx';
 import { DeviceList, QueueList, Seek, Transport, Volume } from './controls.jsx';
 import NowPlaying from './nowplaying/NowPlaying.jsx';
@@ -11,6 +12,10 @@ export default function PlayerBar() {
   const [open, setOpen] = useState(false);
   const item = playback?.item;
   const clock = useClock(playback);
+  const barRef = useRef(null);
+  const popRef = useRef(null);
+  useLiquidGlass(barRef);
+  useLiquidGlass(popRef, { enabled: !!panel, bezel: 18 });
   const progress = useTick(clock.now, playback?.is_playing && !open, 250);
 
   // Al navegar (p. ej. pulsando un artista) se cierran la vista y los paneles
@@ -42,7 +47,7 @@ export default function PlayerBar() {
 
   return (
     <>
-      <footer className="player">
+      <footer ref={barRef} className="player lg-track">
         <div className="np">
           {item ? (
             <>
@@ -102,7 +107,7 @@ export default function PlayerBar() {
       </footer>
 
       {panel && (
-        <aside className="popover-panel glass">
+        <aside ref={popRef} className="popover-panel glass lg-track">
           <div className="panel-head">
             <h3>{panel === 'queue' ? 'A continuación' : 'Dispositivos'}</h3>
             <button className="icon-btn" onClick={() => setPanel(null)} aria-label="Cerrar">
