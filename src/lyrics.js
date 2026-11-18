@@ -172,17 +172,17 @@ const normName = (s = '') =>
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .trim();
 /** true si el artista de Spotify es exactamente uno de los acreditados en NetEase (no basta con que
- *  un nombre contenga al otro: «Air» no es «Air Supply») */
+ *  un nombre contenga al otro: «Air» no es «Air Supply»). Hace falta la lista de artistas por separado:
+ *  partir el texto por comas confundiría «Tyler, The Creator» con «Tyler» */
 function sameArtist(spotifyArtist, ne) {
   const a = normName(spotifyArtist);
-  if (!a) return false;
-  const credits = Array.isArray(ne.artists) ? ne.artists : String(ne.artist || '').split(',');
-  return credits.map(normName).includes(a);
+  if (!a || !Array.isArray(ne.artists)) return false;
+  return ne.artists.map((x) => normName(String(x))).includes(a);
 }
 async function fetchNetease(track, id) {
   const q = id
     ? { id }
-    : { name: cleanName(track.name), artist: track.artists?.[0]?.name || '', duration: String(track.duration_ms || 0) };
+    : { name: cleanName(track.name), artist: track.artists?.[0]?.name || '', duration: String(track.duration_ms || 0), v: '2' }; // v: no usar respuestas guardadas del formato anterior
   const r = await getJson(`${NETEASE}?${new URLSearchParams(q)}`);
   return r?.found ? r : null;
 }
