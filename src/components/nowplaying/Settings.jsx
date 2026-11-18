@@ -1,3 +1,4 @@
+import { GLASS_OPTIONS, useGlassMode } from '../../appearance.js';
 import { ACCENTS, DEFAULTS, ELEMENTS, FONTS } from './prefs.js';
 
 // ======================= AJUSTES =======================
@@ -195,6 +196,7 @@ export default function Settings({ prefs, set, canvas, canvasError, onRetryCanva
       <Slider label="Oscurecer el fondo" value={prefs.dim} max={80} format={(v) => `${v} %`} onChange={(dim) => set({ dim })} />
       <Toggle label="Fondo que respira (colores de la portada)" value={prefs.breathe} onChange={(breathe) => set({ breathe })} />
       <Toggle label="Ocultar barras sin mover el ratón (3 s)" value={prefs.autoHide} onChange={(autoHide) => set({ autoHide })} />
+      <GlassOption />
       <fieldset className="opt">
         <legend>Elementos visibles</legend>
         <div className="opt-row">
@@ -218,5 +220,18 @@ export default function Settings({ prefs, set, canvas, canvasError, onRetryCanva
         Restablecer ajustes
       </button>
     </div>
+  );
+}
+
+// Cristal de toda la app (también está en el perfil)
+function GlassOption() {
+  const { mode, systemReduced, setMode } = useGlassMode();
+  return (
+    <>
+      <Options label="Cristal líquido de la app" value={mode} onChange={setMode} options={GLASS_OPTIONS} />
+      {systemReduced && mode === 'auto' && (
+        <p className="opt-hint">Tu sistema tiene la transparencia reducida, así que ahora se ve opaco. «Siempre cristal» lo muestra igualmente.</p>
+      )}
+    </>
   );
 }

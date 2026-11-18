@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { GLASS_OPTIONS, useGlassMode } from '../appearance.js';
 import TrackList from '../components/TrackList.jsx';
 import { ErrorBox, Icon, Loading, Shelf, imgOf, useAsync } from '../components/ui.jsx';
 import { logout, sp } from '../spotify.js';
@@ -33,6 +34,8 @@ export default function Profile() {
           <Icon name="logout" size={16} /> Cerrar sesión
         </button>
       </div>
+
+      <GlassSetting />
 
       <section className="shelf">
         <div className="shelf-head">
@@ -74,5 +77,26 @@ export default function Profile() {
 
       <Shelf title="Tus playlists públicas" items={mine.filter((p) => p.public)} />
     </div>
+  );
+}
+
+function GlassSetting() {
+  const { mode, systemReduced, setMode } = useGlassMode();
+  return (
+    <section className="appearance" aria-labelledby="glass-title">
+      <h2 id="glass-title">Cristal líquido</h2>
+      <p>
+        {systemReduced
+          ? 'Tu sistema tiene la transparencia reducida: en «Automático» el cristal se ve opaco. Elige «Siempre cristal» para verlo igualmente.'
+          : 'En «Automático» el cristal sigue la configuración de transparencia de tu sistema.'}
+      </p>
+      <div className="chips" role="radiogroup" aria-labelledby="glass-title">
+        {GLASS_OPTIONS.map(([v, l]) => (
+          <button key={v} type="button" role="radio" aria-checked={mode === v} className={`chip ${mode === v ? 'on' : ''}`} onClick={() => setMode(v)}>
+            {l}
+          </button>
+        ))}
+      </div>
+    </section>
   );
 }

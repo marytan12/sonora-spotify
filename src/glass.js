@@ -3,9 +3,9 @@
 // de cada pieza y se aplica con un filtro SVG en backdrop-filter.
 // Solo Chromium (Chrome, Edge…) aplica filtros SVG en backdrop-filter; el resto ve el desenfoque del CSS.
 import { useEffect } from 'react';
+import { useGlassMode } from './appearance.js';
 
 const isChromium = typeof window !== 'undefined' && !!window.chrome && /Chrome\//.test(navigator.userAgent);
-const reduceTransparency = () => window.matchMedia?.('(prefers-reduced-transparency: reduce)').matches;
 let counter = 0;
 
 function defs() {
@@ -84,9 +84,11 @@ function makeMap(w, h, r, bezel) {
  * @param {{ bezel?: number, scale?: number, blur?: number, saturate?: number, enabled?: boolean }} opts
  */
 export function useLiquidGlass(ref, { bezel = 16, scale = 34, blur = 5, saturate = 175, enabled = true } = {}) {
+  // Opaco si el usuario lo elige, o en automático si el sistema pide reducir la transparencia
+  const { reduced } = useGlassMode();
   useEffect(() => {
     const el = ref.current;
-    if (!enabled || !el || !isChromium || reduceTransparency()) return;
+    if (!enabled || !el || !isChromium || reduced) return;
     const id = `lg-${++counter}`;
     const ns = 'http://www.w3.org/2000/svg';
     const filter = document.createElementNS(ns, 'filter');
@@ -142,7 +144,7 @@ export function useLiquidGlass(ref, { bezel = 16, scale = 34, blur = 5, saturate
       el.style.webkitBackdropFilter = '';
       el.classList.remove('lg-refract');
     };
-  }, [ref, bezel, scale, blur, saturate, enabled]);
+  }, [ref, bezel, scale, blur, saturate, enabled, reduced]);
 }
 
 /** Reflejo especular que sigue al puntero sobre las piezas de cristal (.lg-track) */
