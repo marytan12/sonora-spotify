@@ -111,12 +111,12 @@ function Shell() {
     <div className="app" style={{ '--ambient': ambient || '110 90 170' }}>
       <div className="ambient" aria-hidden="true" />
       <header ref={navRef} className={`topnav glass lg-track ${compact ? 'compact' : ''}`}>
-        <a className="brand" href="#/home">
+        <a className="brand" href="#/home" aria-label="Sonora, inicio">
           <Logo /> <span>Sonora</span>
         </a>
         <nav className="tabs" aria-label="Secciones">
           {NAV.map(([name, label, icon]) => (
-            <a key={name} href={`#/${name}`} className={active === name ? 'on' : ''} aria-current={active === name ? 'page' : undefined}>
+            <a key={name} href={`#/${name}`} className={active === name ? 'on' : ''} aria-current={active === name ? 'page' : undefined} aria-label={label} title={label}>
               <Icon name={icon} size={18} />
               <span>{label}</span>
             </a>
@@ -126,7 +126,7 @@ function Shell() {
           <button className="icon-btn round" title="Nueva playlist" onClick={() => setCreating(true)}>
             <Icon name="plus" size={20} />
           </button>
-          <a href="#/profile" className="user-chip" title="Tu perfil">
+          <a href="#/profile" className="user-chip" title="Tu perfil" aria-label="Tu perfil">
             {user && imgOf(user) ? <Cover src={imgOf(user, 'sm')} round size={30} /> : <Icon name="user" />}
           </a>
         </div>

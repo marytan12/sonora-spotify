@@ -7,6 +7,24 @@ const POLL_HIDDEN_MS = 15000; // con la pestaña en segundo plano (gasta menos r
 const RESTART_MS = 3000; // "Anterior" con más de 3 s reproducidos vuelve al principio de la canción
 const EXPECT_MS = 3500; // tiempo que se respeta un cambio optimista mientras Spotify lo confirma
 
+/**
+ * Ajusta cola e historial locales a la canción que suena de verdad. Si no es la que se esperaba,
+ * se quita de la cabeza de la cola (si está ahí) y la esperada pasa al historial.
+ * `shownUri`: canción que se ve ahora en pantalla (para que el recorte automático no se repita).
+ */
+function reconcile(local, realItem, shownUri) {
+  if (!realItem || local.last?.uri === realItem.uri) return local;
+  return {
+    ...local,
+    queue: local.queue[0]?.uri === realItem.uri ? local.queue.slice(1) : local.queue,
+    history: local.last
+      ? [local.last, ...local.history.filter((x) => x.uri !== local.last.uri && x.uri !== realItem.uri)].slice(0, 20)
+      : local.history,
+    last: realItem,
+    consumed: shownUri !== realItem.uri ? realItem.uri : null,
+  };
+}
+
 /** Posición estimada ahora mismo a partir del último estado conocido */
 const positionOf = (pb) =>
   pb ? Math.min(pb.item?.duration_ms || 0, pb.progress_ms + (pb.is_playing ? Date.now() - pb.fetchedAt : 0)) : 0;
@@ -153,16 +171,25 @@ export function AppProvider({ children }) {
           retryRef.current = setTimeout(refreshPlayback, 700);
           return;
         }
-        if (matches) rolledBackRef.current = null;
-        else {
-          // Vencido sin confirmar: se descartan las operaciones que Spotify no llegó a aceptar
+        const last = ops[ops.length - 1];
+        // El sondeo confirma solo la última orden, no las anteriores que aún no han respondido
+        if (matches) {
+          last.accepted = true;
+          rolledBackRef.current = null;
+        } else {
           for (const o of ops) if (!o.accepted && o.auto) rolledBackRef.current = o.fromUri;
-          opsRef.current = ops.filter((o) => o.accepted);
-          recompute();
         }
+        // La reproducción pasa a ser la real. La cola y el historial se recalculan solo con los
+        // cambios de canción aceptados y se contrastan con la canción que suena de verdad: un
+        // «Siguiente» sin respuesta (o rechazado más tarde) no se queda comido en la cola
+        const kept = ops.filter((o) => !o.track || o.accepted);
+        const candidate = kept.reduce((acc, o) => o.apply(acc), baseRef.current);
+        const real = st ? { ...st, fetchedAt: Date.now() } : null;
+        const local = reconcile(candidate, real?.item, playbackRef.current?.item?.uri);
         clearOps();
-        // A partir de aquí manda el estado real; la cola también se vuelve a pedir
+        commit({ ...local, playback: real });
         setTimeout(() => refreshQueueRef.current(), 0);
+        return;
       }
       const real = st ? { ...st, fetchedAt: Date.now() } : null;
       playbackRef.current = real;
@@ -175,13 +202,14 @@ export function AppProvider({ children }) {
   /** Añade una operación optimista. `apply(estado) -> estado` debe poder reaplicarse sobre otra base.
    *  Devuelve su identificador; se quita si su orden falla o si vence el plazo sin ser aceptada. */
   const addOp = useCallback(
-    (apply, expect, { auto = false } = {}) => {
+    (apply, expect, { auto = false, track = false } = {}) => {
       if (!opsRef.current.length) baseRef.current = currentLocal();
       const tx = ++txRef.current;
       const op = {
         tx,
         apply,
         auto,
+        track, // cambia de canción (afecta a la cola y al historial)
         fromUri: playbackRef.current?.item?.uri ?? null,
         accepted: false, // Spotify respondió OK a la orden
         expect: { ...expect, until: Date.now() + EXPECT_MS },
@@ -217,7 +245,7 @@ export function AppProvider({ children }) {
           };
         },
         { uri: next.uri },
-        { auto }
+        { auto, track: true }
       );
     },
     [addOp]
@@ -225,17 +253,26 @@ export function AppProvider({ children }) {
 
   // ---------- Cola: se pide al cambiar de canción y se precargan las siguientes ----------
   const itemUri = playback?.item?.uri;
+  // Solo un cambio de canción aún sin respuesta impide actualizar la cola (pausa o buscar no la tocan)
+  const trackPending = () => opsRef.current.some((o) => o.track && !o.accepted);
   const refreshQueue = useCallback(async () => {
-    if (opsRef.current.length) return; // con operaciones pendientes, la cola la calcula la interfaz optimista
+    if (trackPending()) return;
     try {
       const q = await sp.queue();
-      if (opsRef.current.length) return;
+      if (trackPending()) return;
       const list = (q?.queue || []).filter(Boolean);
+      if (opsRef.current.length && baseRef.current) {
+        // Los cambios de canción ya aceptados pasan a la base y la cola real sustituye a la de la base
+        const base = opsRef.current.filter((o) => o.track).reduce((acc, o) => o.apply(acc), baseRef.current);
+        baseRef.current = { ...base, queue: list };
+        opsRef.current = opsRef.current.filter((o) => !o.track);
+      }
       queueRef.current = list;
       setQueue(list);
     } catch {
       /* no crítico: se mantiene la cola local */
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   refreshQueueRef.current = refreshQueue;
   useEffect(() => {
@@ -471,7 +508,8 @@ export function AppProvider({ children }) {
               last: pv,
             };
           },
-          { uri: prev.uri }
+          { uri: prev.uri },
+          { track: true }
         );
       }
       return run(() => sp.previous(), null, tx);
