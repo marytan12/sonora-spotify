@@ -1,0 +1,66 @@
+/* =========================================================
+   Tu resumen: cabecera con la foto de tu artista nº 1 y una
+   cuadrícula de tarjetas de cristal con tus cifras.
+   ========================================================= */
+.sum-hero { position: relative; isolation: isolate; display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap;
+  padding: clamp(36px, 7vw, 80px) var(--gutter) 32px; margin: 0 calc(var(--gutter) * -1) 8px; min-height: 300px; }
+.sum-hero-bg { position: absolute; top: -90px; bottom: 0; left: 50%; width: 100vw; transform: translateX(-50%); z-index: -1; overflow: hidden;
+  background: linear-gradient(180deg, rgb(var(--art) / 0.6), rgb(var(--art) / 0.12) 70%, transparent);
+  mask-image: linear-gradient(180deg, #000 55%, transparent); -webkit-mask-image: linear-gradient(180deg, #000 55%, transparent); }
+.sum-hero-bg img { width: 100%; height: 100%; object-fit: cover; object-position: center 30%; filter: blur(40px) saturate(1.4); opacity: 0.55; transform: scale(1.15); }
+.sum-hero-text { min-width: 0; }
+.sum-hero h1 { font-size: clamp(2.6rem, 7vw, 5.2rem); font-weight: 800; letter-spacing: -0.045em; margin: 0 0 8px; line-height: 1; }
+.sum-hero p { margin: 0 0 18px; font-size: 1.15rem; color: rgb(255 255 255 / 0.85); }
+.sum-hero .chips { margin: 0; }
+.sum-share { flex-shrink: 0; }
+
+.sum-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 16px; margin-top: 12px; }
+.sum-tile { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; text-align: left; color: var(--text);
+  padding: 22px; border-radius: 26px; min-width: 0; font: inherit; border: 0; }
+button.sum-tile { cursor: pointer; transition: transform 0.45s var(--spring); }
+button.sum-tile:hover { transform: translateY(-3px); }
+.sum-label { font-size: 0.82rem; font-weight: 700; color: rgb(255 255 255 / 0.65); letter-spacing: 0.01em; }
+.sum-big { font-size: clamp(1.4rem, 2.4vw, 1.9rem); font-weight: 800; letter-spacing: -0.03em; line-height: 1.1; overflow-wrap: anywhere; }
+.sum-huge { font-size: clamp(3rem, 6vw, 4.4rem); font-weight: 800; letter-spacing: -0.05em; line-height: 1; color: rgb(var(--art)); filter: brightness(1.6) saturate(1.1); }
+.sum-tile .muted { font-size: 0.92rem; line-height: 1.45; }
+
+/* Tarjetas con arte grande */
+.sum-artist, .sum-track { grid-row: span 2; }
+.sum-artist .cover { width: 100%; height: auto; aspect-ratio: 1; margin-bottom: 8px; box-shadow: 0 24px 50px -18px rgb(0 0 0 / 0.7); }
+.sum-track-art { position: relative; width: 100%; padding: 0; border: 0; background: none; border-radius: 16px; margin-bottom: 8px; }
+.sum-track-art .cover { width: 100%; height: auto; aspect-ratio: 1; border-radius: 16px; box-shadow: 0 24px 50px -18px rgb(0 0 0 / 0.7); }
+.sum-track-art .fab-play { position: absolute; right: 14px; bottom: 14px; width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center;
+  background: #fff; color: #111; box-shadow: 0 8px 20px rgb(0 0 0 / 0.4); transition: transform 0.45s var(--spring); }
+.sum-track-art:hover .fab-play { transform: scale(1.08); }
+
+/* Listas de top 5 */
+.sum-list { list-style: none; margin: 4px 0 0; padding: 0; width: 100%; display: flex; flex-direction: column; gap: 4px; }
+.sum-list button { display: flex; align-items: center; gap: 12px; width: 100%; padding: 6px 8px; border: 0; border-radius: 12px; background: none; color: inherit; text-align: left; font: inherit; }
+.sum-list button:hover { background: rgb(255 255 255 / 0.08); }
+.sum-n { width: 18px; text-align: right; font-weight: 800; color: rgb(255 255 255 / 0.45); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.sum-name { display: flex; flex-direction: column; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sum-name small { color: var(--muted); font-weight: 500; overflow: hidden; text-overflow: ellipsis; }
+
+/* Momento del día */
+.sum-bars { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; align-items: end; height: 120px; width: 100%; margin: 8px 0 4px; }
+.sum-bar { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 6px; height: 100%; }
+.sum-bar div { width: 100%; max-width: 46px; border-radius: 10px 10px 6px 6px; background: rgb(255 255 255 / 0.18); transition: height 0.6s var(--spring); }
+.sum-bar.on div { background: rgb(var(--art)); filter: brightness(1.5); }
+.sum-bar span { font-size: 0.76rem; color: var(--muted); font-weight: 600; }
+.sum-genres { display: flex; flex-wrap: wrap; gap: 8px; }
+.sum-genres .chip { text-transform: capitalize; cursor: default; }
+
+/* Compartir */
+.share-preview { display: grid; place-items: center; min-height: 200px; }
+.share-preview img { width: 100%; max-height: 60vh; object-fit: contain; border-radius: 16px; box-shadow: 0 20px 50px -16px rgb(0 0 0 / 0.7); }
+.share-actions { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; margin-top: 16px; }
+
+/* Descarga de la app de escritorio */
+.desktop-app { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.desktop-app p { margin: 0; }
+
+@media (max-width: 760px) {
+  .sum-artist, .sum-track { grid-row: auto; }
+  .sum-hero { min-height: 240px; }
+  .sum-share { width: 100%; justify-content: center; }
+}

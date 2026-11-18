@@ -33,7 +33,7 @@ export function useAsync(fn, deps) {
 }
 
 // Iconos: Ionicons (MIT, estilo iOS). Los SF Symbols de Apple no se pueden usar fuera de sus plataformas.
-const files = import.meta.glob('/node_modules/ionicons/dist/svg/{home,search,library,play,pause,play-forward,play-back,shuffle,repeat,heart,heart-outline,add,list,laptop-outline,volume-high,volume-mute,trash-outline,ellipsis-horizontal,person,create-outline,close,chevron-up,chevron-down,log-out-outline,musical-notes,chatbubble-ellipses-outline,settings-outline,expand,image-outline,chevron-back,chevron-forward,mic-outline,information-circle-outline,disc-outline,person-outline,alert-circle-outline,contract,refresh-outline,checkmark}.svg', { query: '?raw', import: 'default', eager: true });
+const files = import.meta.glob('/node_modules/ionicons/dist/svg/{home,search,library,play,pause,play-forward,play-back,shuffle,repeat,heart,heart-outline,add,list,laptop-outline,volume-high,volume-mute,trash-outline,ellipsis-horizontal,person,create-outline,close,chevron-up,chevron-down,log-out-outline,musical-notes,chatbubble-ellipses-outline,settings-outline,expand,image-outline,chevron-back,chevron-forward,mic-outline,information-circle-outline,disc-outline,person-outline,alert-circle-outline,contract,refresh-outline,checkmark,sparkles,share-outline,download-outline,logo-windows}.svg', { query: '?raw', import: 'default', eager: true });
 const svgOf = (f) => files[`/node_modules/ionicons/dist/svg/${f}.svg`] || '';
 const ICONS = {
   home: 'home', search: 'search', library: 'library', play: 'play', pause: 'pause',
@@ -46,6 +46,7 @@ const ICONS = {
   chevronDown: 'chevron-down', left: 'chevron-back', right: 'chevron-forward',
   mic: 'mic-outline', info: 'information-circle-outline', album: 'disc-outline', artist: 'person-outline',
   alert: 'alert-circle-outline', contract: 'contract', refresh: 'refresh-outline', check: 'checkmark',
+  sparkles: 'sparkles', share: 'share-outline', download: 'download-outline', windows: 'logo-windows',
 };
 const cache = {};
 export function Icon({ name, size = 20, className = '', ...rest }) {

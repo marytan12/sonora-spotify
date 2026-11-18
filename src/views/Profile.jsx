@@ -36,6 +36,7 @@ export default function Profile() {
       </div>
 
       <GlassSetting />
+      <DesktopApp />
 
       <section className="shelf">
         <div className="shelf-head">
@@ -96,6 +97,24 @@ function GlassSetting() {
             {l}
           </button>
         ))}
+      </div>
+    </section>
+  );
+}
+
+function DesktopApp() {
+  return (
+    <section className="appearance" aria-labelledby="desktop-title">
+      <h2 id="desktop-title">Sonora para Windows</h2>
+      <p>
+        Abre Sonora en su propia ventana, como una aplicación, desde el escritorio o la barra de tareas. Usa Chrome o Edge
+        por debajo, así que la música suena igual que en la web.
+      </p>
+      <div className="desktop-app">
+        <a className="btn primary" href="/descargas/Sonora.exe" download>
+          <Icon name="windows" size={18} /> Descargar para Windows 11
+        </a>
+        <span className="muted small">Al abrirlo por primera vez, Windows puede avisar: pulsa «Más información» y «Ejecutar de todas formas».</span>
       </div>
     </section>
   );

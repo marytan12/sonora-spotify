@@ -11,6 +11,7 @@ import Home from './views/Home.jsx';
 import Library, { Liked } from './views/Library.jsx';
 import Profile from './views/Profile.jsx';
 import Search from './views/Search.jsx';
+import Summary from './views/Summary.jsx';
 
 // El intercambio del código OAuth solo debe ocurrir una vez (StrictMode monta dos veces)
 let callbackOnce;
@@ -65,11 +66,12 @@ export function Logo({ size = 28 }) {
   return <img className="logo" src="/favicon.svg" width={size} height={size} alt="" />;
 }
 
-const VIEWS = { home: Home, search: Search, library: Library, liked: Liked, playlist: Playlist, album: Album, artist: Artist, show: Show, profile: Profile };
+const VIEWS = { home: Home, search: Search, library: Library, liked: Liked, playlist: Playlist, album: Album, artist: Artist, show: Show, profile: Profile, resumen: Summary };
 const NAV = [
   ['home', 'Escuchar', 'home'],
   ['search', 'Buscar', 'search'],
   ['library', 'Biblioteca', 'library'],
+  ['resumen', 'Resumen', 'sparkles'],
 ];
 
 /** true al bajar por la página (más de 80 px) y false al volver a subir, como la barra de iOS */

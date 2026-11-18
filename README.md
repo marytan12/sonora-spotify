@@ -44,6 +44,19 @@ Abre <http://127.0.0.1:5173>.
 Proyecto listo para Vercel (`vercel.json` incluye la reescritura SPA para `/callback`).
 Define la variable de entorno `VITE_SPOTIFY_CLIENT_ID` en el proyecto.
 
+## Tu resumen
+
+En «Resumen»: tu artista y tu canción nº 1, tus top 5, tu década favorita, la variedad de artistas, a qué hora
+del día escuchas más, lo que tienes en bucle y tus géneros, por periodo (4 semanas, 6 meses o desde siempre).
+El botón «Compartir resumen» genera una tarjeta en imagen (1080×1920) para descargarla o compartirla.
+
+## App para Windows 11
+
+`public/descargas/Sonora.exe` (descargable desde el perfil) abre Sonora en su propia ventana usando Chrome o Edge
+en modo aplicación. Se usa el navegador y no Electron porque la reproducción de Spotify en el navegador necesita
+Widevine, que Chrome y Edge incluyen y Electron no. Para volver a compilarlo: `desktop\build.cmd` (usa el
+compilador de C# de .NET Framework 4, incluido en Windows). La web también es instalable como app (manifiesto PWA).
+
 ## Canvas y letras
 
 - **Canvas**: Spotify no ofrece los Canvas en su API oficial. `api/canvas.js` (función de Vercel) los pide a un servicio
