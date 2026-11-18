@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useFrame } from '../../clock.js';
 import { lyricsCandidates, pickLyrics, retryLyrics, useLyrics } from '../../lyrics.js';
 import { Icon, Loading, fmt, useAsync } from '../ui.jsx';
@@ -74,6 +74,25 @@ export default function Lyrics({ item, now, onSeek, variant }) {
       c.removeEventListener('touchmove', mark);
     };
   }, [isList, lyr.status, fixing]);
+
+  // Letra sobre la portada: si una frase vecina no cabe entera (se ha encogido para dejar sitio a la
+  // actual), se oculta en vez de mostrarse cortada a media fila
+  useLayoutEffect(() => {
+    const o = box.current;
+    if (isList || !o) return;
+    const fit = () => {
+      const others = [...o.querySelectorAll('.line:not(.now)')];
+      others.forEach((l) => (l.style.display = ''));
+      for (const l of others) {
+        const lh = parseFloat(getComputedStyle(l).lineHeight) || 20;
+        if (l.getBoundingClientRect().height < lh - 1) l.style.display = 'none';
+      }
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(o);
+    return () => ro.disconnect();
+  }, [active, isList, lyr.status]);
 
   // Desplazamiento suave para centrar la línea activa
   useEffect(() => {
