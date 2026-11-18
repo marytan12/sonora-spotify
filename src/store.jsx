@@ -66,6 +66,10 @@ export function AppProvider({ children }) {
   const queueRef = useRef([]);
   const historyRef = useRef([]);
   const retryRef = useRef(null);
+  // Las consultas del estado se numeran: una respuesta que llega después de que ya se haya aplicado
+  // otra más nueva (las respuestas pueden llegar desordenadas) se descarta
+  const pollSeqRef = useRef(0);
+  const appliedSeqRef = useRef(0);
   const lastItemRef = useRef(null); // última canción vista (para el historial)
   // ---- Interfaz optimista: lo que se ve = estado base confirmado + operaciones pendientes ----
   // Cada orden (siguiente, pausa, buscar…) es una operación que se aplica encima del estado base.
@@ -161,8 +165,10 @@ export function AppProvider({ children }) {
   const refreshQueueRef = useRef(() => {});
 
   const refreshPlayback = useCallback(async () => {
+    const seq = ++pollSeqRef.current;
     try {
       const st = await sp.playback();
+      if (seq < appliedSeqRef.current) return; // respuesta atrasada: ya se aplicó una más reciente
       const ops = opsRef.current;
       if (ops.length) {
         // Mientras la última orden no se refleje, se ignoran respuestas antiguas para no "rebotar"
@@ -193,11 +199,13 @@ export function AppProvider({ children }) {
         const real = st ? { ...st, fetchedAt: Date.now() } : null;
         const local = reconcile(candidate, real?.item, playbackRef.current?.item?.uri);
         clearOps();
+        appliedSeqRef.current = seq;
         commit({ ...local, playback: real });
         setTimeout(() => refreshQueueRef.current(), 0);
         return;
       }
       const real = st ? { ...st, fetchedAt: Date.now() } : null;
+      appliedSeqRef.current = seq;
       playbackRef.current = real;
       setPlayback(real);
     } catch {
