@@ -144,6 +144,8 @@
   text-shadow: 0 1px 8px rgb(0 0 0 / 0.5); transition: color 0.4s;
   /* Las frases vecinas ceden su sitio (hasta desaparecer) si no cabe todo */
   flex: 0 1 auto; min-height: 0; }
+/* Vecina que no cabe entera (la marca Lyrics.jsx): se oculta. Nunca afecta a la frase actual */
+.lyrics-overlay .line:not(.now)[data-nofit] { display: none; }
 /* La frase actual nunca se encoge: se le da el espacio antes que a las vecinas */
 .lyrics-overlay .line.now { font-size: 1.14rem; color: rgb(255 255 255 / 0.55); -webkit-line-clamp: 3; flex-shrink: 0; margin: 2px 0; }
 .lyrics-overlay.lo-line { min-height: 34%; padding-top: clamp(24px, 14%, 64px); }

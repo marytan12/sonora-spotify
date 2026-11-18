@@ -81,11 +81,12 @@ export default function Lyrics({ item, now, onSeek, variant }) {
     const o = box.current;
     if (isList || !o) return;
     const fit = () => {
-      const others = [...o.querySelectorAll('.line:not(.now)')];
-      others.forEach((l) => (l.style.display = ''));
-      for (const l of others) {
+      // Se limpia la marca en todas las frases (también la actual: React reutiliza el mismo
+      // elemento cuando una vecina pasa a ser la actual). El CSS nunca oculta la actual.
+      o.querySelectorAll('.line').forEach((l) => l.removeAttribute('data-nofit'));
+      for (const l of o.querySelectorAll('.line:not(.now)')) {
         const lh = parseFloat(getComputedStyle(l).lineHeight) || 20;
-        if (l.getBoundingClientRect().height < lh - 1) l.style.display = 'none';
+        if (l.getBoundingClientRect().height < lh - 1) l.setAttribute('data-nofit', '');
       }
     };
     fit();
