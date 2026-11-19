@@ -172,6 +172,22 @@ export function QueueList() {
   const swipeRef = useRef(null);
   const fromQueue = () => queue.map((t, i) => ({ k: `${t.uri}#${i}`, t }));
   const items = draft ?? fromQueue();
+  // Si mientras se edita empieza a sonar otra canción: si estaba en el borrador, sale de él (ya no
+  // está en la cola, y al aplicar se repetiría); si no estaba, la cola ha cambiado del todo y el
+  // borrador se descarta
+  const itemUri = playback?.item?.uri;
+  const draftForRef = useRef(itemUri);
+  useEffect(() => {
+    if (!draft) {
+      draftForRef.current = itemUri;
+      return;
+    }
+    if (itemUri === draftForRef.current) return;
+    draftForRef.current = itemUri;
+    const i = draft.findIndex((x) => x.t.uri === itemUri);
+    setDraft(i < 0 ? null : draft.filter((_, k) => k !== i));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [itemUri]);
   const edit = (fn) => setDraft((d) => fn(d ?? fromQueue()));
   const remove = (k) => edit((d) => d.filter((x) => x.k !== k));
   const move = (from, to) =>
@@ -241,7 +257,9 @@ export function QueueList() {
   };
 
   const apply = () => {
+    // Nunca se vuelve a poner en la cola la canción que ya está sonando si encabeza el borrador
     const tracks = draft.map((x) => x.t);
+    if (tracks[0]?.uri === itemUri) tracks.shift();
     setDraft(null);
     actions.rebuildQueue(tracks);
   };

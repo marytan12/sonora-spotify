@@ -40,19 +40,31 @@ export function transition(update, kind = 'page') {
 }
 
 /** Lleva la página a `y` en cuanto el contenido es lo bastante alto (las listas llegan después) */
+let restoreToken = 0; // cada página nueva cancela la restauración que estuviera pendiente
+
 export function restoreScroll(y) {
+  const token = ++restoreToken;
   window.scrollTo(0, y);
   if (!y) return;
   let tries = 0;
+  const stop = () => {
+    if (token === restoreToken) restoreToken++;
+  };
   const tick = () => {
+    if (token !== restoreToken) return;
     const max = document.documentElement.scrollHeight - window.innerHeight;
-    if (max >= y - 2) return window.scrollTo(0, y);
+    if (max >= y - 2) {
+      window.scrollTo(0, y);
+      return stop();
+    }
     if (++tries < 90) requestAnimationFrame(tick);
-    else window.scrollTo(0, max);
+    else {
+      window.scrollTo(0, max);
+      stop();
+    }
   };
   requestAnimationFrame(tick);
   // Si el usuario se desplaza antes, se deja de intentar
-  const stop = () => (tries = 999);
   window.addEventListener('wheel', stop, { once: true, passive: true });
   window.addEventListener('touchstart', stop, { once: true, passive: true });
 }

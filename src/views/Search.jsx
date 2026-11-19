@@ -59,6 +59,11 @@ export default function Search() {
   const [recentQ, setRecentQ] = useState(() => readList(Q_KEY));
   const [recentOpen, setRecentOpen] = useState(() => readList(OPEN_KEY));
   const reqRef = useRef(0);
+  // Búsqueda a la que pertenecen los resultados que se ven ({ text, type }): «Cargar más» siempre
+  // continúa esa, aunque mientras tanto se esté escribiendo otra
+  const [shown, setShown] = useState(() => (res ? { text: (route.id || '').trim(), type: route.extra || 'all' } : null));
+  const shownRef = useRef(shown);
+  shownRef.current = shown;
 
   const saveQuery = (text = q) => {
     const t = text.trim();
@@ -90,13 +95,20 @@ export default function Search() {
   useEffect(() => {
     const text = q.trim();
     if (!text) {
+      // Una respuesta que aún estuviera en camino ya no vale (ni para los resultados ni para la dirección)
+      ++reqRef.current;
       setRes(null);
+      setShown(null);
       setLoading(false);
+      if (window.location.hash.startsWith('#/search/')) replaceHash('#/search');
       return;
     }
     const key = `${type}:${text}`;
     const hit = resultCache.get(key);
-    if (hit) setRes(hit);
+    if (hit) {
+      setRes(hit);
+      setShown({ text, type });
+    }
     const id = ++reqRef.current;
     const t = setTimeout(async () => {
       setLoading(true);
@@ -107,8 +119,9 @@ export default function Search() {
         resultCache.set(key, r);
         if (resultCache.size > 40) resultCache.delete(resultCache.keys().next().value);
         setRes(r);
+        setShown({ text, type });
         setOffset(0);
-        replaceHash(`#/search/${encodeURIComponent(q)}${type !== 'all' ? '/' + type : ''}`);
+        replaceHash(`#/search/${encodeURIComponent(text)}${type !== 'all' ? '/' + type : ''}`);
       } catch (e) {
         if (id === reqRef.current) setError(e);
       } finally {
@@ -120,19 +133,24 @@ export default function Search() {
 
   // Cargar más (la API limita a 10 resultados por página)
   const more = async () => {
+    const from = shownRef.current;
+    if (!from || from.type === 'all') return;
     const next = offset + 10;
     try {
-      const r = await sp.search(q, [type], next);
-      const key = type + 's';
+      const r = await sp.search(from.text, [from.type], next);
+      // Si entretanto se ve otra búsqueda, esta página ya no le corresponde
+      if (shownRef.current !== from) return;
+      const key = from.type + 's';
       setRes((old) => ({ ...old, [key]: { ...r[key], items: [...old[key].items, ...r[key].items] } }));
       setOffset(next);
     } catch (e) {
-      setError(e);
+      if (shownRef.current === from) setError(e);
     }
   };
 
   const list = (k) => res?.[k + 's']?.items?.filter(Boolean) || [];
-  const hasMore = type !== 'all' && res?.[type + 's']?.next;
+  // Solo con los resultados de la búsqueda actual a la vista y sin otra en camino
+  const hasMore = !loading && shown?.type === type && shown.text === q.trim() && type !== 'all' && res?.[type + 's']?.next;
 
   return (
     <div className="page">
