@@ -1,6 +1,31 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { sp } from '../spotify.js';
 import { useApp } from '../store.jsx';
 import { Cover, Icon, fmt, imgOf } from './ui.jsx';
+
+/**
+ * Cuántas entradas del principio de `base` (la cola cuando empezó la edición) ya han sonado, viendo
+ * la cola real `live` (las dos como listas de URI). Se compara por posiciones, no por canción: dos
+ * copias de la misma canción son entradas distintas. -1 si la cola ha cambiado de otra forma.
+ */
+export function consumedEntries(base, live) {
+  // Cola real vacía: o ha sonado todo o se ha vaciado; en ninguno de los dos casos vale el borrador
+  if (!live.length) return base.length ? -1 : 0;
+  for (let n = 0; n <= base.length; n++) {
+    let ok = true;
+    for (let j = 0; n + j < base.length && j < live.length; j++) {
+      if (live[j] !== base[n + j]) {
+        ok = false;
+        break;
+      }
+    }
+    if (!ok) continue;
+    // Sin nada en común con lo que había (y con cola real no vacía): ha cambiado del todo
+    if (n === base.length && base.length && live.length) return -1;
+    return n;
+  }
+  return -1;
+}
 
 /**
  * Repinta `paint` en cada fotograma mientras suena (y una vez en cada render).
@@ -165,30 +190,49 @@ export function QueueList() {
   useEffect(() => {
     refreshQueue();
   }, [refreshQueue]);
-  const [draft, setDraft] = useState(null); // [{ k, t }] mientras se edita
+  const [draft, setDraft] = useState(null); // [{ k, t, b }] mientras se edita (b: posición en la cola original)
+  const [notice, setNotice] = useState(null);
+  const baseRef = useRef(null); // URIs de la cola de Spotify cuando empezó la edición
   const [drag, setDrag] = useState(null); // { k, dy }
   const [swipe, setSwipe] = useState(null); // { k, dx }
   const dragRef = useRef(null);
   const swipeRef = useRef(null);
-  const fromQueue = () => queue.map((t, i) => ({ k: `${t.uri}#${i}`, t }));
+  const fromQueue = () => queue.map((t, i) => ({ k: `${t.uri}#${i}`, t, b: i }));
   const items = draft ?? fromQueue();
-  // Si mientras se edita empieza a sonar otra canción: si estaba en el borrador, sale de él (ya no
-  // está en la cola, y al aplicar se repetiría); si no estaba, la cola ha cambiado del todo y el
-  // borrador se descarta
-  const itemUri = playback?.item?.uri;
-  const draftForRef = useRef(itemUri);
+
+  /** Ajusta el borrador a la cola real: quita las entradas que ya han sonado o lo descarta si la cola cambió */
+  const rebase = (d, live) => {
+    const n = consumedEntries(baseRef.current || [], live);
+    if (n < 0) return null;
+    return d.filter((x) => x.b >= n);
+  };
+  const discard = () => {
+    setDraft(null);
+    setNotice('La cola ha cambiado mientras la editabas, así que se han descartado tus cambios.');
+  };
+  // Mientras se edita, la cola se consulta cada pocos segundos y el borrador se ajusta a ella
   useEffect(() => {
-    if (!draft) {
-      draftForRef.current = itemUri;
-      return;
-    }
-    if (itemUri === draftForRef.current) return;
-    draftForRef.current = itemUri;
-    const i = draft.findIndex((x) => x.t.uri === itemUri);
-    setDraft(i < 0 ? null : draft.filter((_, k) => k !== i));
+    if (!draft) return;
+    const t = setInterval(refreshQueue, 4000);
+    return () => clearInterval(t);
+  }, [!!draft, refreshQueue]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!draft) return;
+    const next = rebase(draft, queue.map((t) => t.uri));
+    if (!next) discard();
+    else if (next.length !== draft.length) setDraft(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [itemUri]);
-  const edit = (fn) => setDraft((d) => fn(d ?? fromQueue()));
+  }, [queue]);
+  useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(null), 6000);
+    return () => clearTimeout(t);
+  }, [notice]);
+  const edit = (fn) =>
+    setDraft((d) => {
+      if (!d) baseRef.current = queue.map((t) => t.uri);
+      return fn(d ?? fromQueue());
+    });
   const remove = (k) => edit((d) => d.filter((x) => x.k !== k));
   const move = (from, to) =>
     edit((d) => {
@@ -256,16 +300,30 @@ export function QueueList() {
     setSwipe(null);
   };
 
-  const apply = () => {
-    // Nunca se vuelve a poner en la cola la canción que ya está sonando si encabeza el borrador
-    const tracks = draft.map((x) => x.t);
-    if (tracks[0]?.uri === itemUri) tracks.shift();
+  const [applying, setApplying] = useState(false);
+  const apply = async () => {
+    // Justo antes de aplicar se comprueba la cola real: lo que ya haya sonado sale del borrador
+    setApplying(true);
+    let d = draft;
+    try {
+      const live = await sp.queue();
+      d = rebase(draft, (live?.queue || []).map((t) => t.uri));
+    } catch {
+      /* sin respuesta: se aplica el borrador tal cual */
+    }
+    setApplying(false);
+    if (!d) return discard();
     setDraft(null);
-    actions.rebuildQueue(tracks);
+    actions.rebuildQueue(d.map((x) => x.t));
   };
 
   return (
     <div className="queue">
+      {notice && !draft && (
+        <p className="queue-notice" role="status">
+          {notice}
+        </p>
+      )}
       {draft && (
         <div className="queue-apply" role="status">
           <p>
@@ -274,8 +332,8 @@ export function QueueList() {
             {playback?.context ? ' y, al acabar estas canciones, la reproducción se para: se pierde la playlist o el álbum de origen' : ''}.
           </p>
           <div>
-            <button type="button" className="btn primary" onClick={apply}>
-              Aplicar
+            <button type="button" className="btn primary" onClick={apply} disabled={applying}>
+              {applying ? 'Aplicando…' : 'Aplicar'}
             </button>
             <button type="button" className="btn" onClick={() => setDraft(null)}>
               Descartar
