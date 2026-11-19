@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useArtColor } from './art.js';
 import { useGlassHighlight, useGlassWhileScrolling, useLiquidGlass } from './glass.js';
 import PlayerBar from './components/PlayerBar.jsx';
@@ -6,6 +6,7 @@ import { AddToPlaylistModal, CreatePlaylistModal } from './components/Sidebar.js
 import { Cover, Icon, imgOf } from './components/ui.jsx';
 import { hexRgb, useSettings } from './settings.js';
 import { REDIRECT_URI, handleCallback, isLoggedIn, login } from './spotify.js';
+import { restoreScroll } from './transitions.js';
 import { AppProvider, useApp } from './store.jsx';
 import AppSettings from './views/AppSettings.jsx';
 import { Album, Artist, Playlist, Show } from './views/Collection.jsx';
@@ -118,10 +119,11 @@ function Shell() {
   useLiquidGlass(mobileRef);
   useGlassHighlight();
   useGlassWhileScrolling();
-  // Al cambiar de sección, la barra vuelve a su tamaño normal
-  useEffect(() => {
-    window.scrollTo({ top: 0 });
-  }, [route.name]);
+  // Al cambiar de página se empieza arriba; al volver atrás, donde se estaba (con la caché de
+  // páginas el contenido ya está, así que el salto es inmediato)
+  useLayoutEffect(() => {
+    restoreScroll(route.restore || 0);
+  }, [route]);
   const [creating, setCreating] = useState(false);
   const View = VIEWS[route.name] || Home;
   const art = imgOf(playback?.item?.album || playback?.item, 'sm');

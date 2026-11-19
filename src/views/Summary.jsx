@@ -15,7 +15,8 @@ export default function Summary() {
         sp.top('artists', range, 50),
         sp.recentlyPlayed().catch(() => ({ items: [] })),
       ]),
-    [range]
+    [range],
+    `sum:${range}`
   );
   const s = useMemo(
     () => (data.data ? analyze(data.data[0]?.items, data.data[1]?.items, data.data[2]?.items) : null),

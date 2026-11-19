@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { go, useApp } from '../store.jsx';
 
 export const fmt = (ms = 0) => {
@@ -14,26 +14,50 @@ export const imgOf = (obj, size = 'md') => {
   return size === 'sm' ? imgs[imgs.length - 1].url : imgs[0].url;
 };
 
-// Ejecuta una función async y devuelve {data, error, loading, reload}
-export function useAsync(fn, deps) {
-  const [state, setState] = useState({ data: null, error: null, loading: true });
+// ---------- Caché de páginas ----------
+// Lo ya visitado (álbumes, artistas, playlists, el inicio…) se muestra al instante al volver y se
+// actualiza por detrás con lo que diga Spotify. Solo en memoria y como mucho 60 páginas.
+const pageCache = new Map();
+export const cached = (key) => (key ? pageCache.get(key) : undefined);
+export function remember(key, data) {
+  if (!key) return;
+  pageCache.delete(key);
+  pageCache.set(key, data);
+  if (pageCache.size > 60) pageCache.delete(pageCache.keys().next().value);
+}
+
+/**
+ * Ejecuta una función async y devuelve {data, error, loading, reload}.
+ * Con `key`, usa la caché de páginas: si ya se cargó, se muestra al momento y se refresca por detrás.
+ */
+export function useAsync(fn, deps, key) {
+  const [state, setState] = useState(() => {
+    const c = cached(key);
+    return c !== undefined ? { data: c, error: null, loading: false } : { data: null, error: null, loading: true };
+  });
   const [n, setN] = useState(0);
   useEffect(() => {
     let alive = true;
-    setState((s) => ({ ...s, loading: true, error: null }));
+    const c = cached(key);
+    // Con caché: se ve ya y se pide de nuevo sin mostrar «cargando»; si esa petición falla, se queda lo guardado
+    if (c !== undefined) setState({ data: c, error: null, loading: false });
+    else setState((s) => ({ ...s, loading: true, error: null }));
     fn()
-      .then((data) => alive && setState({ data, error: null, loading: false }))
-      .catch((error) => alive && setState({ data: null, error, loading: false }));
+      .then((data) => {
+        remember(key, data);
+        if (alive) setState({ data, error: null, loading: false });
+      })
+      .catch((error) => alive && c === undefined && setState({ data: null, error, loading: false }));
     return () => {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [...deps, n]);
+  }, [...deps, key, n]);
   return { ...state, reload: () => setN((x) => x + 1) };
 }
 
 // Iconos: Ionicons (MIT, estilo iOS). Los SF Symbols de Apple no se pueden usar fuera de sus plataformas.
-const files = import.meta.glob('/node_modules/ionicons/dist/svg/{home,search,library,play,pause,play-forward,play-back,shuffle,repeat,heart,heart-outline,add,list,laptop-outline,volume-high,volume-mute,trash-outline,ellipsis-horizontal,person,create-outline,close,chevron-up,chevron-down,log-out-outline,musical-notes,chatbubble-ellipses-outline,settings-outline,expand,image-outline,chevron-back,chevron-forward,mic-outline,information-circle-outline,disc-outline,person-outline,alert-circle-outline,contract,refresh-outline,checkmark,sparkles,share-outline,download-outline,logo-windows}.svg', { query: '?raw', import: 'default', eager: true });
+const files = import.meta.glob('/node_modules/ionicons/dist/svg/{home,search,library,play,pause,play-forward,play-back,shuffle,repeat,heart,heart-outline,add,list,laptop-outline,volume-high,volume-mute,trash-outline,ellipsis-horizontal,person,create-outline,close,chevron-up,chevron-down,log-out-outline,musical-notes,chatbubble-ellipses-outline,settings-outline,expand,image-outline,chevron-back,chevron-forward,mic-outline,information-circle-outline,disc-outline,person-outline,alert-circle-outline,contract,refresh-outline,checkmark,sparkles,share-outline,download-outline,logo-windows,reorder-three}.svg', { query: '?raw', import: 'default', eager: true });
 const svgOf = (f) => files[`/node_modules/ionicons/dist/svg/${f}.svg`] || '';
 const ICONS = {
   home: 'home', search: 'search', library: 'library', play: 'play', pause: 'pause',
@@ -46,7 +70,7 @@ const ICONS = {
   chevronDown: 'chevron-down', left: 'chevron-back', right: 'chevron-forward',
   mic: 'mic-outline', info: 'information-circle-outline', album: 'disc-outline', artist: 'person-outline',
   alert: 'alert-circle-outline', contract: 'contract', refresh: 'refresh-outline', check: 'checkmark',
-  sparkles: 'sparkles', share: 'share-outline', download: 'download-outline', windows: 'logo-windows',
+  sparkles: 'sparkles', share: 'share-outline', download: 'download-outline', windows: 'logo-windows', reorder: 'reorder-three',
 };
 const cache = {};
 export function Icon({ name, size = 20, className = '', ...rest }) {
@@ -88,11 +112,18 @@ export function Cover({ src, round, size }) {
 }
 
 /** Tarjeta para álbum / artista / playlist / podcast */
-export function Card({ item, sub }) {
+export function Card({ item, sub, onOpen }) {
   const { actions } = useApp();
+  const openRef = useRef(onOpen);
+  openRef.current = onOpen;
   if (!item) return null;
   const type = item.type;
   const route = { album: 'album', artist: 'artist', playlist: 'playlist', show: 'show' }[type];
+  const open = () => {
+    if (!route) return;
+    openRef.current?.(item);
+    go(route, item.id);
+  };
   const subtitle =
     sub ??
     (type === 'album'
@@ -107,8 +138,8 @@ export function Card({ item, sub }) {
   return (
     <div
       className={`card ${type === 'artist' ? 'is-artist' : ''}`}
-      onClick={() => route && go(route, item.id)}
-      onKeyDown={(e) => e.key === 'Enter' && route && go(route, item.id)}
+      onClick={open}
+      onKeyDown={(e) => e.key === 'Enter' && open()}
       tabIndex={0}
       role="link"
     >

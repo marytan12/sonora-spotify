@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import { prefetchQueue, prefetchTrack } from './prefetch.js';
 import { readSettings } from './settings.js';
 import { getToken, sp } from './spotify.js';
+import { transition } from './transitions.js';
 
 const POLL_MS = 3000; // sondeo del estado de reproducción con la pestaña visible
 const POLL_HIDDEN_MS = 15000; // con la pestaña en segundo plano (gasta menos red y batería)
@@ -51,7 +52,9 @@ function samePlayback(a, b) {
   )
     return false;
   const estimate = Math.min(a.item?.duration_ms || 0, a.progress_ms + (a.is_playing ? b.fetchedAt - a.fetchedAt : 0));
-  return Math.abs(estimate - b.progress_ms) < 400;
+  // Sonando, la estimación cubre el avance (±400 ms); en pausa no se mueve nada, así que cualquier
+  // cambio de posición (alguien ha buscado desde otro dispositivo) tiene que verse
+  return Math.abs(estimate - b.progress_ms) < (a.is_playing ? 400 : 1);
 }
 
 /** Posición estimada ahora mismo a partir del último estado conocido */
@@ -68,6 +71,16 @@ function parseHash() {
   const [name = 'home', id = null, extra = null] = raw.split('/');
   return { name: name || 'home', id: id && decodeURIComponent(id), extra: extra && decodeURIComponent(extra) };
 }
+// Historial propio de la navegación: al volver atrás (o adelante) se recupera dónde estaba la página
+const navStack = [window.location.hash];
+let navIdx = 0;
+const scrollByHash = new Map();
+/** Cambia la dirección sin crear otra entrada en el historial (la búsqueda, mientras escribes) */
+export function replaceHash(hash) {
+  window.history.replaceState(null, '', hash);
+  navStack[navIdx] = window.location.hash;
+}
+
 export const go = (name, id, extra) => {
   window.location.hash = '/' + [name, id, extra].filter(Boolean).map(encodeURIComponent).join('/');
 };
@@ -112,14 +125,32 @@ export function AppProvider({ children }) {
   const rolledBackRef = useRef(null); // canción cuyo paso automático a la siguiente se deshizo
   const consumedRef = useRef(null); // canción que «Siguiente» ya sacó de la cola local
   const txRef = useRef(0); // identificador de cada operación
-  playbackRef.current = playback;
+  const renderedPlaybackRef = useRef(playback);
+  if (renderedPlaybackRef.current !== playback) {
+    renderedPlaybackRef.current = playback;
+    playbackRef.current = playback;
+  }
   queueRef.current = queue;
   historyRef.current = history;
 
   useEffect(() => {
     const onHash = () => {
-      setRoute(parseHash());
-      window.scrollTo(0, 0);
+      const h = window.location.hash;
+      scrollByHash.set(navStack[navIdx], window.scrollY);
+      let restore = 0;
+      if (navIdx > 0 && navStack[navIdx - 1] === h) {
+        navIdx--;
+        restore = scrollByHash.get(h) || 0;
+      } else if (navStack[navIdx + 1] === h) {
+        navIdx++;
+        restore = scrollByHash.get(h) || 0;
+      } else {
+        navStack.splice(navIdx + 1);
+        navStack.push(h);
+        navIdx++;
+      }
+      // La página nueva entra con una transición suave; la posición se recupera en App.jsx
+      transition(() => setRoute({ ...parseHash(), restore }), 'page');
     };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
@@ -687,6 +718,26 @@ export function AppProvider({ children }) {
     },
     transfer: (id) => run(() => sp.transfer(id, true), 'Reproducción transferida'),
     addToQueue: (uri) => run((d) => sp.addToQueue(uri, d), 'Añadido a la cola').then(() => setTimeout(refreshQueue, 500)),
+    /**
+     * Cola reordenada o con canciones quitadas. Spotify no permite editar su cola, así que se vuelve
+     * a crear: la canción actual (en el mismo punto) seguida de `tracks` en ese orden.
+     */
+    rebuildQueue: (tracks) => {
+      const pb = playbackRef.current;
+      if (!pb?.item) return Promise.resolve();
+      const playable = tracks.filter((t) => t?.uri && !t.uri.startsWith('spotify:local:'));
+      const wasPaused = !pb.is_playing;
+      const position_ms = Math.round(positionOf(pb));
+      queueRef.current = playable;
+      setQueue(playable);
+      return run(
+        async (d) => {
+          await sp.play({ uris: [pb.item.uri, ...playable.map((t) => t.uri)].slice(0, 100), offset: { position: 0 }, position_ms }, d);
+          if (wasPaused) await sp.pause(d);
+        },
+        'Cola actualizada'
+      ).then(() => setTimeout(refreshQueue, 900));
+    },
   };
 
   // ---------- Título de la pestaña y controles multimedia del sistema ----------

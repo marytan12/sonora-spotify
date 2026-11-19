@@ -155,25 +155,168 @@ export function Volume() {
   );
 }
 
+/**
+ * Cola: arrastra el asa para reordenar, desliza a la izquierda (o pulsa ×) para quitar.
+ * Los cambios se preparan aquí y se aplican con «Aplicar», porque Spotify no deja editar su cola
+ * y hay que volver a crearla (ver rebuildQueue en store.jsx).
+ */
 export function QueueList() {
-  const { queue, refreshQueue, actions } = useApp();
+  const { queue, refreshQueue, actions, playback } = useApp();
   useEffect(() => {
     refreshQueue();
   }, [refreshQueue]);
+  const [draft, setDraft] = useState(null); // [{ k, t }] mientras se edita
+  const [drag, setDrag] = useState(null); // { k, dy }
+  const [swipe, setSwipe] = useState(null); // { k, dx }
+  const dragRef = useRef(null);
+  const swipeRef = useRef(null);
+  const fromQueue = () => queue.map((t, i) => ({ k: `${t.uri}#${i}`, t }));
+  const items = draft ?? fromQueue();
+  const edit = (fn) => setDraft((d) => fn(d ?? fromQueue()));
+  const remove = (k) => edit((d) => d.filter((x) => x.k !== k));
+  const move = (from, to) =>
+    edit((d) => {
+      const n = [...d];
+      const [x] = n.splice(from, 1);
+      n.splice(Math.max(0, Math.min(n.length, to)), 0, x);
+      return n;
+    });
+
+  // Arrastrar con el asa (ratón, dedo o lápiz)
+  const startDrag = (e, k) => {
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const row = e.currentTarget.closest('.q-row');
+    dragRef.current = { k, y0: e.clientY, h: row?.offsetHeight || 56 };
+    setDrag({ k, dy: 0 });
+  };
+  const moveDrag = (e) => {
+    const d = dragRef.current;
+    if (!d) return;
+    const list = draftRef.current ?? fromQueue();
+    const i = list.findIndex((x) => x.k === d.k);
+    const steps = Math.trunc((e.clientY - d.y0) / d.h);
+    const to = Math.max(0, Math.min(list.length - 1, i + steps));
+    if (steps && to !== i) {
+      move(i, to);
+      d.y0 += (to - i) * d.h; // la fila sigue bajo el puntero
+    }
+    setDrag({ k: d.k, dy: e.clientY - d.y0 });
+  };
+  const endDrag = () => {
+    dragRef.current = null;
+    setDrag(null);
+  };
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+
+  // Deslizar a la izquierda para quitar (pantallas táctiles)
+  const startSwipe = (e, k) => {
+    if (e.pointerType === 'mouse') return;
+    swipeRef.current = { k, x0: e.clientX, y0: e.clientY, on: false };
+  };
+  const justSwiped = useRef(false); // el toque que termina un deslizamiento no reproduce la canción
+  const moveSwipe = (e) => {
+    const s = swipeRef.current;
+    if (!s) return;
+    const dx = e.clientX - s.x0;
+    if (!s.on && Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(e.clientY - s.y0)) {
+      s.on = true;
+      e.currentTarget.setPointerCapture?.(e.pointerId);
+    }
+    if (s.on) {
+      s.dx = Math.min(0, dx);
+      setSwipe({ k: s.k, dx: s.dx });
+    }
+  };
+  const endSwipe = () => {
+    const s = swipeRef.current;
+    swipeRef.current = null;
+    if (s?.on) {
+      justSwiped.current = true;
+      setTimeout(() => (justSwiped.current = false), 0);
+      if (s.dx < -90) remove(s.k);
+    }
+    setSwipe(null);
+  };
+
+  const apply = () => {
+    const tracks = draft.map((x) => x.t);
+    setDraft(null);
+    actions.rebuildQueue(tracks);
+  };
+
   return (
     <div className="queue">
-      {queue.length ? (
-        queue.map((t, i) => (
-          <button key={t.uri + i} className="q-item" onClick={() => actions.playUris([t.uri])} title="Reproducir ahora">
-            <Cover src={imgOf(t.album || t, 'sm')} size={44} />
-            <span className="tl-text">
-              <span className="tl-name">{t.name}</span>
-              <span className="tl-artist">{t.artists?.map((a) => a.name).join(', ') || t.show?.name}</span>
-            </span>
-          </button>
-        ))
+      {draft && (
+        <div className="queue-apply" role="status">
+          <p>
+            Spotify no deja editar su cola: al aplicar, Sonora la vuelve a crear con este orden. La canción actual sigue
+            donde va (puede haber un corte muy breve)
+            {playback?.context ? ' y, al acabar estas canciones, la reproducción se para: se pierde la playlist o el álbum de origen' : ''}.
+          </p>
+          <div>
+            <button type="button" className="btn primary" onClick={apply}>
+              Aplicar
+            </button>
+            <button type="button" className="btn" onClick={() => setDraft(null)}>
+              Descartar
+            </button>
+          </div>
+        </div>
+      )}
+      {items.length ? (
+        <ul className="q-list">
+          {items.map(({ k, t }, i) => {
+            const dragging = drag?.k === k;
+            const swiping = swipe?.k === k;
+            return (
+              <li
+                key={k}
+                className={`q-row ${dragging ? 'is-dragging' : ''} ${swiping && swipe.dx < -90 ? 'will-remove' : ''}`}
+                style={dragging ? { transform: `translateY(${drag.dy}px)` } : swiping ? { transform: `translateX(${swipe.dx}px)` } : undefined}
+                onPointerDown={(e) => startSwipe(e, k)}
+                onPointerMove={moveSwipe}
+                onPointerUp={endSwipe}
+                onPointerCancel={endSwipe}
+              >
+                <button
+                  className="q-item"
+                  onClick={() => !justSwiped.current && actions.playUris([t.uri])}
+                  title="Reproducir ahora"
+                >
+                  <Cover src={imgOf(t.album || t, 'sm')} size={44} />
+                  <span className="tl-text">
+                    <span className="tl-name">{t.name}</span>
+                    <span className="tl-artist">{t.artists?.map((a) => a.name).join(', ') || t.show?.name}</span>
+                  </span>
+                </button>
+                <button type="button" className="icon-btn q-remove" onClick={() => remove(k)} aria-label={`Quitar ${t.name} de la cola`} title="Quitar de la cola">
+                  <Icon name="close" size={16} />
+                </button>
+                <button
+                  type="button"
+                  className="icon-btn q-handle"
+                  aria-label={`Mover ${t.name} (flechas arriba y abajo)`}
+                  title="Arrastra para cambiar el orden"
+                  onPointerDown={(e) => startDrag(e, k)}
+                  onPointerMove={moveDrag}
+                  onPointerUp={endDrag}
+                  onPointerCancel={endDrag}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+                    e.preventDefault();
+                    move(i, i + (e.key === 'ArrowUp' ? -1 : 1));
+                  }}
+                >
+                  <Icon name="reorder" size={18} />
+                </button>
+              </li>
+            );
+          })}
+        </ul>
       ) : (
-        <p className="muted">La cola está vacía. Añade canciones desde el menú de cualquier canción.</p>
+        <p className="muted">{draft ? 'Has quitado todas las canciones de la cola.' : 'La cola está vacía. Añade canciones desde el menú de cualquier canción.'}</p>
       )}
     </div>
   );

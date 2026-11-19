@@ -178,3 +178,40 @@ kbd { font: inherit; font-size: 0.78rem; font-weight: 700; min-width: 26px; text
   .sc-keys { grid-column: 1; justify-content: flex-start; min-width: 0; }
   .settings-page .sc-change { grid-row: 1 / span 2; grid-column: 2; }
 }
+
+/* ---------- Transiciones (View Transitions API: Chrome, Edge, Safari 18) ---------- */
+/* Las barras fijas quedan quietas mientras cambia la página (sin nombre si «Sonando ahora» está
+   abierta o se está abriendo: si no, se dibujarían por encima de ella durante la transición) */
+.topnav { view-transition-name: topnav; }
+.player { view-transition-name: player; }
+.mobile-nav { view-transition-name: mobile-nav; }
+html[data-vt='np'] :is(.topnav, .player, .mobile-nav), .app:has(.nowplaying) :is(.topnav, .player, .mobile-nav) { view-transition-name: none; }
+::view-transition-group(*) { animation-duration: 0.42s; animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1); }
+/* Cambio de página: la anterior se desvanece y la nueva sube un poco al aparecer */
+html[data-vt='page']::view-transition-old(root) { animation: vt-out 0.18s ease both; }
+html[data-vt='page']::view-transition-new(root) { animation: vt-in 0.34s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+@keyframes vt-out { to { opacity: 0; } }
+@keyframes vt-in { from { opacity: 0; transform: translateY(14px); } }
+/* «Sonando ahora»: la portada pequeña de la barra crece hasta la grande (y vuelve al cerrar) */
+html[data-vt='np']::view-transition-old(root), html[data-vt='np']::view-transition-new(root) { animation-duration: 0.36s; }
+.nowplaying .np-artwork-inner { view-transition-name: np-art; }
+::view-transition-group(np-art) { animation-duration: 0.5s; animation-timing-function: cubic-bezier(0.32, 0.72, 0, 1); }
+::view-transition-old(np-art) { animation: none; opacity: 0; }
+::view-transition-new(np-art) { animation: none; width: 100%; height: 100%; object-fit: cover; border-radius: 12px; overflow: hidden; }
+/* Con transición, la vista no hace además su propia animación de entrada */
+.nowplaying.np-vt { animation: none; }
+
+/* ---------- Búsqueda: resultados mientras escribes y recientes ---------- */
+.search-results { transition: opacity 0.2s ease; }
+.search-results.is-stale { opacity: 0.6; }
+.search-bar { position: relative; overflow: hidden; }
+.search-bar.is-loading::after { content: ''; position: absolute; left: 0; bottom: 0; height: 2px; width: 40%; border-radius: 2px;
+  background: rgb(var(--ambient)); filter: brightness(1.4); animation: search-load 0.9s ease-in-out infinite; }
+@keyframes search-load { from { transform: translateX(-100%); } to { transform: translateX(260%); } }
+.recent-queries { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.recent-q { display: inline-flex; align-items: center; border-radius: 999px; background: var(--surface); box-shadow: inset 0 0 0 0.5px var(--line); }
+.recent-q:hover { background: var(--surface-2); }
+.recent-q button { border: 0; background: none; color: var(--text); font: inherit; font-size: 0.9rem; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; padding: 8px 6px 8px 14px; }
+.recent-q .recent-x { padding: 8px 12px 8px 6px; color: var(--faint); }
+.recent-q .recent-x:hover { color: var(--text); }
+.recents .shelf:first-child { margin-top: 12px; }

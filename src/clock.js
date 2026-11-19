@@ -13,6 +13,8 @@ const sameTrack = (s, a) => s.uri === a.uri || s.linked === a.uri || (s.name ===
 function correct(a, pos, at) {
   if (a.jumped && at - a.jumped < 2500) return a; // tras buscar, Spotify tarda en aplicar la posición
   if (at <= a.at) return a;
+  // En pausa no hay nada que suavizar: la posición es la que dice Spotify
+  if (!a.playing) return pos === a.pos ? a : { ...a, pos, at };
   const estimate = a.pos + (a.playing ? at - a.at : 0);
   const err = pos - estimate;
   if (Math.abs(err) > 1000) return { ...a, pos, at };

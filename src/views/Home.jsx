@@ -34,10 +34,11 @@ export default function Home() {
   const sections = settings.homeOrder.filter((k) => !settings.homeHidden.includes(k));
   const wantsRecent = sections.includes('recent');
   const wantsTop = sections.includes('topTracks') || sections.includes('topArtists');
-  const recent = useAsync(() => (wantsRecent ? sp.recentlyPlayed() : Promise.resolve(null)), [wantsRecent]);
+  const recent = useAsync(() => (wantsRecent ? sp.recentlyPlayed() : Promise.resolve(null)), [wantsRecent], wantsRecent ? 'home:recent' : null);
   const top = useAsync(
     () => (wantsTop ? Promise.all([sp.top('tracks', range, 10), sp.top('artists', range, 12)]) : Promise.resolve(null)),
-    [range, wantsTop]
+    [range, wantsTop],
+    wantsTop ? `home:top:${range}` : null
   );
   // El selector de periodo va en la primera de las dos secciones de tu top que se vea
   const firstTop = sections.find((k) => k === 'topTracks' || k === 'topArtists');

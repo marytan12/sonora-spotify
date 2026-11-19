@@ -35,11 +35,11 @@ function PlayBig({ uri }) {
 export function Playlist() {
   const { route, user, toast, fail, refreshPlaylists } = useApp();
   const id = route.id;
-  const meta = useAsync(() => sp.playlist(id), [id]);
+  const meta = useAsync(() => sp.playlist(id), [id], `pl:${id}`);
   const pl = meta.data;
   const canEdit = pl && (pl.owner?.id === user?.id || pl.collaborative);
   const hasItems = pl && (pl.items !== undefined || pl.tracks?.items !== undefined);
-  const p = usePaged((o) => (hasItems ? sp.playlistItems(id, o || 0) : Promise.resolve({ items: [] })), [id, hasItems], byOffset);
+  const p = usePaged((o) => (hasItems ? sp.playlistItems(id, o || 0) : Promise.resolve({ items: [] })), [id, hasItems], byOffset, hasItems ? `pl-items:${id}` : null);
   const [editing, setEditing] = useState(false);
   const tracks = p.items.map((x) => x.item || x.track);
 
@@ -215,7 +215,7 @@ function toJpegBase64(file) {
 // ---------------- ÁLBUM ----------------
 export function Album() {
   const { route, openAddToPlaylist } = useApp();
-  const a = useAsync(() => sp.album(route.id), [route.id]);
+  const a = useAsync(() => sp.album(route.id), [route.id], `al:${route.id}`);
   const [extra, setExtra] = useState([]);
   useEffect(() => setExtra([]), [route.id]);
   if (a.loading) return <Loading />;
@@ -281,7 +281,7 @@ export function Artist() {
     ]);
     const popular = (songs.tracks?.items || []).filter((t) => t?.artists?.some((x) => x.id === id));
     return { artist, albums: albums.items, singles: singles.items, appears: appears.items, popular };
-  }, [id]);
+  }, [id], `ar:${id}`);
 
   if (a.loading) return <Loading />;
   if (a.error) return <ErrorBox error={a.error} onRetry={a.reload} />;
@@ -309,8 +309,8 @@ export function Artist() {
 // ---------------- PODCAST ----------------
 export function Show() {
   const { route } = useApp();
-  const s = useAsync(() => sp.show(route.id), [route.id]);
-  const p = usePaged((o) => sp.showEpisodes(route.id, o || 0), [route.id], byOffset);
+  const s = useAsync(() => sp.show(route.id), [route.id], `sh:${route.id}`);
+  const p = usePaged((o) => sp.showEpisodes(route.id, o || 0), [route.id], byOffset, `sh-eps:${route.id}`);
   if (s.loading) return <Loading />;
   if (s.error) return <ErrorBox error={s.error} onRetry={s.reload} />;
   const show = s.data;

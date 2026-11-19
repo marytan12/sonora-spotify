@@ -110,7 +110,7 @@ function Info({ item }) {
 }
 
 // ======================= VISTA =======================
-export default function NowPlaying({ onClose, clock }) {
+export default function NowPlaying({ onClose, clock, viaTransition }) {
   const { playback, actions, saved, toggleSaved, openAddToPlaylist } = useApp();
   const [prefs, set] = usePrefs();
   const item = playback?.item;
@@ -138,6 +138,7 @@ export default function NowPlaying({ onClose, clock }) {
   const lyricNow = useCallback(() => clockNow() + offset, [clockNow, offset]);
 
   const closeBtn = useRef(null);
+  const firstArt = useRef(art); // portada con la que se abrió la vista
   const seek = (ms) => {
     const dur = item?.duration_ms || 0;
     const to = Math.max(0, Math.min(dur ? dur - 500 : ms, ms));
@@ -229,6 +230,7 @@ export default function NowPlaying({ onClose, clock }) {
 
   const cls = [
     'nowplaying',
+    viaTransition ? 'np-vt' : '',
     `layout-${layout}`,
     `theme-${prefs.theme}`,
     `shape-${prefs.shape}`,
@@ -408,7 +410,8 @@ export default function NowPlaying({ onClose, clock }) {
                   {canvasCover ? (
                     <video key={canvas} className="np-fade" src={canvas} autoPlay loop muted playsInline poster={art} />
                   ) : art ? (
-                    <img key={art} className="np-fade" src={art} alt={item?.album?.name || item?.name || ''} />
+                    // Al abrir con transición, la portada ya llega creciendo desde la barra: el fundido es solo al cambiar de canción
+                    <img key={art} className={viaTransition && art === firstArt.current ? '' : 'np-fade'} src={art} alt={item?.album?.name || item?.name || ''} />
                   ) : (
                     <div className="cover placeholder">
                       <Icon name="music" size={64} />

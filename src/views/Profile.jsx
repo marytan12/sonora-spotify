@@ -9,8 +9,8 @@ import { Header } from './Library.jsx';
 export default function Profile() {
   const { user, playlists } = useApp();
   const [range, setRange] = useState('medium_term');
-  const top = useAsync(() => Promise.all([sp.top('tracks', range, 50), sp.top('artists', range, 30)]), [range]);
-  const recent = useAsync(() => sp.recentlyPlayed(), []);
+  const top = useAsync(() => Promise.all([sp.top('tracks', range, 50), sp.top('artists', range, 30)]), [range], `prof:top:${range}`);
+  const recent = useAsync(() => sp.recentlyPlayed(), [], 'prof:recent');
 
   // Géneros favoritos calculados a partir de tus artistas top
   const genres = {};

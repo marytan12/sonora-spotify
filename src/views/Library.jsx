@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CreatePlaylistModal } from '../components/Sidebar.jsx';
 import TrackList from '../components/TrackList.jsx';
-import { Card, Cover, ErrorBox, Icon, Loading } from '../components/ui.jsx';
+import { Card, Cover, ErrorBox, Icon, Loading, cached, remember } from '../components/ui.jsx';
 import { useArtColor } from '../art.js';
 import { sp } from '../spotify.js';
 import { useApp } from '../store.jsx';
@@ -26,29 +26,54 @@ export function Header({ img, round, kind, title, children, meta, banner }) {
 }
 
 /** Carga una lista paginada con botón "Cargar más" */
-export function usePaged(fetchPage, deps, getNextArg) {
-  const [items, setItems] = useState([]);
-  const [next, setNext] = useState(null);
+const sig = (x) => x?.id || x?.uri || x?.item?.uri || x?.track?.uri || x?.album?.id || x?.show?.id || x?.episode?.id || '';
+
+/**
+ * Lista paginada. Con `key`, se guarda en la caché de páginas (con todas las páginas ya cargadas):
+ * al volver se ve al momento y se comprueba por detrás que la primera página no ha cambiado.
+ */
+export function usePaged(fetchPage, deps, getNextArg, key) {
+  const [items, setItems] = useState(() => cached(key)?.items ?? []);
+  const [next, setNext] = useState(() => cached(key)?.next ?? null);
   const [error, setError] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const load = async (arg, reset) => {
-    setLoading(true);
+  const [loading, setLoading] = useState(() => !cached(key));
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  const load = async (arg, reset, quiet) => {
+    if (!quiet) setLoading(true);
     try {
       const page = await fetchPage(arg);
-      setItems((old) => (reset ? page.items : [...old, ...page.items]));
-      setNext(page.next ? getNextArg(page, arg) : null);
+      const nextArg = page.next ? getNextArg(page, arg) : null;
+      const old = itemsRef.current;
+      // Comprobación por detrás: si la primera página es la misma, se conserva todo lo cargado
+      if (quiet && page.items.length <= old.length && page.items.every((x, i) => sig(x) === sig(old[i]))) return;
+      const all = reset ? page.items : [...old, ...page.items];
+      itemsRef.current = all;
+      setItems(all);
+      setNext(nextArg);
+      remember(key, { items: all, next: nextArg });
       setError(null);
     } catch (e) {
-      setError(e);
+      if (!quiet) setError(e);
     } finally {
-      setLoading(false);
+      if (!quiet) setLoading(false);
     }
   };
   useEffect(() => {
-    setItems([]);
-    load(undefined, true);
+    const c = cached(key);
+    if (c) {
+      itemsRef.current = c.items;
+      setItems(c.items);
+      setNext(c.next);
+      setLoading(false);
+      load(undefined, true, true);
+    } else {
+      itemsRef.current = [];
+      setItems([]);
+      load(undefined, true);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps);
+  }, [...deps, key]);
   return { items, error, loading, hasMore: next !== null, more: () => load(next), reload: () => load(undefined, true) };
 }
 const byOffset = (page) => page.offset + page.limit;
@@ -96,15 +121,15 @@ export default function Library() {
         </div>
       )}
       {tab === 'artists' && <FollowedArtists />}
-      {tab === 'albums' && <PagedGrid fetch={(o) => sp.savedAlbums(o)} map={(x) => x.album} />}
-      {tab === 'shows' && <PagedGrid fetch={(o) => sp.savedShows(o)} map={(x) => x.show} />}
+      {tab === 'albums' && <PagedGrid fetch={(o) => sp.savedAlbums(o)} map={(x) => x.album} cacheKey="lib:albums" />}
+      {tab === 'shows' && <PagedGrid fetch={(o) => sp.savedShows(o)} map={(x) => x.show} cacheKey="lib:shows" />}
       {tab === 'episodes' && <SavedEpisodes />}
     </div>
   );
 }
 
-function PagedGrid({ fetch, map }) {
-  const p = usePaged((o) => fetch(o || 0), [], byOffset);
+function PagedGrid({ fetch, map, cacheKey }) {
+  const p = usePaged((o) => fetch(o || 0), [], byOffset, cacheKey);
   return (
     <>
       {p.error && <ErrorBox error={p.error} onRetry={p.reload} />}
@@ -127,7 +152,8 @@ function FollowedArtists() {
       return r.artists;
     },
     [],
-    (page) => page.cursors?.after
+    (page) => page.cursors?.after,
+    'lib:artists'
   );
   return (
     <>
@@ -145,7 +171,7 @@ function FollowedArtists() {
 }
 
 function SavedEpisodes() {
-  const p = usePaged((o) => sp.savedEpisodes(o || 0), [], byOffset);
+  const p = usePaged((o) => sp.savedEpisodes(o || 0), [], byOffset, 'lib:episodes');
   return (
     <>
       {p.error && <ErrorBox error={p.error} onRetry={p.reload} />}
@@ -158,7 +184,7 @@ function SavedEpisodes() {
 
 export function Liked() {
   const { user, actions } = useApp();
-  const p = usePaged((o) => sp.savedTracks(o || 0), [], byOffset);
+  const p = usePaged((o) => sp.savedTracks(o || 0), [], byOffset, 'liked');
   const tracks = p.items.map((x) => x.track);
   return (
     <div className="page">

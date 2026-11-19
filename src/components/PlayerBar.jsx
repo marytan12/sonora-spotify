@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useClock } from '../clock.js';
 import { useLiquidGlass } from '../glass.js';
 import { useShortcuts } from '../shortcuts.js';
 import { go, useApp } from '../store.jsx';
+import { canTransition, transition } from '../transitions.js';
 import { DeviceList, QueueList, Seek, Transport, Volume, toggleMute } from './controls.jsx';
 import NowPlaying from './nowplaying/NowPlaying.jsx';
 import { Artists, Cover, Icon, imgOf } from './ui.jsx';
@@ -29,6 +30,9 @@ export default function PlayerBar() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item?.uri]);
 
+  const openNp = () => transition(() => setOpen(true), 'np');
+  const closeNp = useCallback(() => transition(() => setOpen(false), 'np'), []);
+
   const seek = (ms) => {
     const dur = item?.duration_ms || 0;
     const to = Math.max(0, Math.min(dur ? dur - 500 : ms, ms));
@@ -49,7 +53,11 @@ export default function PlayerBar() {
     like: () => item?.type === 'track' && toggleSaved(item.uri),
     shuffle: actions.shuffle,
     repeat: actions.repeat,
-    nowPlaying: () => item && setOpen((o) => !o),
+    nowPlaying: () => {
+      if (!item) return;
+      const next = !open;
+      transition(() => setOpen(next), 'np');
+    },
     search: () => {
       setOpen(false);
       go('search');
@@ -63,14 +71,15 @@ export default function PlayerBar() {
         <div className="np">
           {item ? (
             <>
-              <button className="np-art" onClick={() => setOpen(true)} title="Abrir Sonando ahora">
+              {/* Mientras la vista está cerrada, esta portada es la que crece hasta la grande al abrirla */}
+              <button className="np-art" onClick={openNp} title="Abrir Sonando ahora" style={open ? undefined : { viewTransitionName: 'np-art' }}>
                 <Cover src={imgOf(item.album || item, 'sm')} size={52} />
                 <span className="np-expand">
                   <Icon name="up" size={18} />
                 </span>
               </button>
               <div className="np-text">
-                <button className="np-name" onClick={() => setOpen(true)}>
+                <button className="np-name" onClick={openNp}>
                   {item.name}
                 </button>
                 <div className="np-artist">{item.artists ? <Artists artists={item.artists} /> : item.show?.name}</div>
@@ -99,7 +108,7 @@ export default function PlayerBar() {
           <button className="play-btn mini show-sm" onClick={actions.toggle} title={playback?.is_playing ? 'Pausar' : 'Reproducir'}>
             <Icon name={playback?.is_playing ? 'pause' : 'play'} size={18} />
           </button>
-          <button className="icon-btn hide-md" onClick={() => setOpen(true)} title="Letra y Sonando ahora">
+          <button className="icon-btn hide-md" onClick={openNp} title="Letra y Sonando ahora">
             <Icon name="lyrics" size={18} />
           </button>
           <button className={`icon-btn ${panel === 'queue' ? 'active' : ''}`} onClick={() => setPanel(panel === 'queue' ? null : 'queue')} title="Cola">
@@ -129,7 +138,7 @@ export default function PlayerBar() {
           {panel === 'queue' ? <QueueList /> : <DeviceList />}
         </aside>
       )}
-      {open && <NowPlaying onClose={() => setOpen(false)} clock={clock} />}
+      {open && <NowPlaying onClose={closeNp} clock={clock} viaTransition={canTransition()} />}
     </>
   );
 }
