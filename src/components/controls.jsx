@@ -1,32 +1,86 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useApp } from '../store.jsx';
 import { Cover, Icon, fmt, imgOf } from './ui.jsx';
 
-export function Seek({ progress, duration, onSeek }) {
-  const [drag, setDrag] = useState(null);
-  const shown = drag ?? progress;
+/**
+ * Repinta `paint` en cada fotograma mientras suena (y una vez en cada render).
+ * Las barras de progreso se actualizan así, directamente en la página: antes la vista entera se
+ * volvía a dibujar varias veces por segundo solo para mover la barra.
+ */
+function useLivePaint(paint, playing) {
+  useEffect(() => {
+    paint();
+  });
+  useEffect(() => {
+    if (!playing) return;
+    let raf;
+    const loop = () => {
+      paint();
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, [paint, playing]);
+}
+
+/** Barra de progreso con tiempos. `clock.now()` da la posición; avanza sola mientras suena */
+export function Seek({ clock, playing, duration, onSeek }) {
+  const input = useRef(null);
+  const cur = useRef(null);
+  const rest = useRef(null);
+  const drag = useRef(null); // posición mientras se arrastra
+  const last = useRef({ p: '', a: '', b: '' });
+  const paint = useCallback(() => {
+    const el = input.current;
+    if (!el) return;
+    const shown = Math.max(0, Math.min(duration || 0, drag.current ?? clock.now()));
+    const L = last.current;
+    if (drag.current === null && String(Math.round(shown)) !== el.value) el.value = String(Math.round(shown));
+    const p = `${duration ? ((shown / duration) * 100).toFixed(2) : 0}%`;
+    if (p !== L.p) el.style.setProperty('--p', (L.p = p));
+    const a = fmt(shown);
+    const b = `-${fmt(Math.max(0, duration - shown))}`;
+    if (a !== L.a) cur.current.textContent = L.a = a;
+    if (b !== L.b) rest.current.textContent = L.b = b;
+  }, [clock, duration]);
+  useLivePaint(paint, playing);
   const commit = () => {
-    if (drag === null) return;
-    onSeek(drag);
-    setDrag(null);
+    if (drag.current === null) return;
+    onSeek(drag.current);
+    drag.current = null;
   };
   return (
     <div className="seek">
-      <span>{fmt(shown)}</span>
+      <span ref={cur} />
       <input
+        ref={input}
         type="range"
         min="0"
         max={duration || 1}
-        value={Math.min(shown, duration || 1)}
-        style={{ '--p': `${duration ? (shown / duration) * 100 : 0}%` }}
-        onChange={(e) => setDrag(Number(e.target.value))}
+        defaultValue={0}
+        onChange={(e) => {
+          drag.current = Number(e.target.value);
+          paint();
+        }}
         onPointerUp={commit}
         onKeyUp={commit}
         aria-label="Posición"
       />
-      <span>-{fmt(Math.max(0, duration - shown))}</span>
+      <span ref={rest} />
     </div>
   );
+}
+
+/** Línea fina de progreso (karaoke), también sin volver a dibujar a quien la usa */
+export function ProgressLine({ clock, playing, duration, className }) {
+  const el = useRef(null);
+  const last = useRef('');
+  const paint = useCallback(() => {
+    const p = `${duration ? Math.min(100, (clock.now() / duration) * 100).toFixed(2) : 0}%`;
+    if (el.current && p !== last.current) el.current.style.setProperty('--p', (last.current = p));
+  }, [clock, duration]);
+  useLivePaint(paint, playing);
+  return <div ref={el} className={className} />;
 }
 
 export function Transport({ large }) {

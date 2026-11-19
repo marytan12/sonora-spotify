@@ -172,7 +172,10 @@ input[type='range']::-moz-range-thumb { width: 13px; height: 13px; border: 0; bo
 .tl-row { display: grid; grid-template-columns: 32px minmax(0, 4fr) minmax(0, 3fr) 36px 56px 36px; align-items: center; gap: 14px; padding: 7px 12px; border-radius: 10px; font-size: 0.92rem; }
 .tl-row.no-album { grid-template-columns: 32px minmax(0, 1fr) 36px 56px 36px; }
 .tl-row:not(.tl-head):hover { background: var(--surface); }
-.tl-row:not(.tl-head) + .tl-row:not(.tl-head) { box-shadow: 0 -1px 0 var(--line); }
+/* Separador por dentro de la fila (la contención de content-visibility recorta lo que sale de ella) */
+.tl-row:not(.tl-head) + .tl-row:not(.tl-head) { box-shadow: inset 0 1px 0 var(--line); }
+/* Las filas fuera de la pantalla no se maquetan ni se pintan: las playlists largas van fluidas */
+.tl-row:not(.tl-head) { content-visibility: auto; contain-intrinsic-size: auto 56px; }
 .tl-row:not(.tl-head):hover, .tl-row:not(.tl-head):hover + .tl-row { box-shadow: none; }
 .tl-head { display: none; }
 .tl-num { color: var(--faint); text-align: center; position: relative; font-variant-numeric: tabular-nums; }
@@ -461,6 +464,8 @@ input[type='range']::-moz-range-thumb { width: 13px; height: 13px; border: 0; bo
   -webkit-backdrop-filter: none;
 }
 .glass-reduced .lg-track::after { display: none; }
+/* Durante el desplazamiento: solo desenfoque (ver useGlassWhileScrolling en glass.js) */
+.lg-refract.lg-scrolling { backdrop-filter: blur(var(--glass-blur, 12px)) saturate(180%) brightness(1.06) !important; -webkit-backdrop-filter: blur(var(--glass-blur, 12px)) saturate(180%) brightness(1.06) !important; }
 
 /* Selector de apariencia en el perfil */
 .appearance { background: var(--surface); border-radius: var(--radius-lg); padding: 18px 20px; max-width: 640px; margin: 8px 0 24px; }

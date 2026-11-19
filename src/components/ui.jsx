@@ -79,7 +79,7 @@ export function Artists({ artists = [] }) {
 
 export function Cover({ src, round, size }) {
   return src ? (
-    <img className={`cover ${round ? 'round' : ''}`} src={src} alt="" loading="lazy" style={size && { width: size, height: size }} />
+    <img className={`cover ${round ? 'round' : ''}`} src={src} alt="" loading="lazy" decoding="async" style={size && { width: size, height: size }} />
   ) : (
     <div className={`cover placeholder ${round ? 'round' : ''}`} style={size && { width: size, height: size }}>
       <Icon name="music" size={28} />

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useArtColor } from './art.js';
-import { useGlassHighlight, useLiquidGlass } from './glass.js';
+import { useGlassHighlight, useGlassWhileScrolling, useLiquidGlass } from './glass.js';
 import PlayerBar from './components/PlayerBar.jsx';
 import { AddToPlaylistModal, CreatePlaylistModal } from './components/Sidebar.jsx';
 import { Cover, Icon, imgOf } from './components/ui.jsx';
@@ -117,6 +117,7 @@ function Shell() {
   useLiquidGlass(navRef);
   useLiquidGlass(mobileRef);
   useGlassHighlight();
+  useGlassWhileScrolling();
   // Al cambiar de sección, la barra vuelve a su tamaño normal
   useEffect(() => {
     window.scrollTo({ top: 0 });

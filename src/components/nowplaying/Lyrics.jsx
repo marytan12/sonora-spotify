@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useFrame } from '../../clock.js';
 import { getSongOffset, lyricsCandidates, neteaseCandidate, pickLyrics, retryLyrics, setSongOffset, useLyrics, useSongOffset } from '../../lyrics.js';
 import { Icon, Loading, fmt, useAsync } from '../ui.jsx';
@@ -54,7 +54,20 @@ function fillWords(el, f) {
  * fill: 'word' rellena la frase actual palabra a palabra; 'line' la enciende entera; 'none', sin animación.
  * lines: frases visibles con la letra sobre la portada (1 la actual, 2 actual y siguiente, 3 también la anterior).
  */
-export default function Lyrics({ item, now, onSeek, variant, fill = 'word', lines: overlayLines = 3 }) {
+/** Solo se vuelve a dibujar si cambia la canción o un ajuste de la letra (no con cada sondeo) */
+export default memo(
+  Lyrics,
+  (a, b) =>
+    a.item?.id === b.item?.id &&
+    a.item?.duration_ms === b.item?.duration_ms &&
+    a.now === b.now &&
+    a.onSeek === b.onSeek &&
+    a.variant === b.variant &&
+    a.fill === b.fill &&
+    a.lines === b.lines
+);
+
+function Lyrics({ item, now, onSeek, variant, fill = 'word', lines: overlayLines = 3 }) {
   const lyr = useLyrics(item, true);
   const [active, setActive] = useState(-1);
   const box = useRef(null);

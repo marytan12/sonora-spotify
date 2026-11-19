@@ -147,6 +147,33 @@ export function useLiquidGlass(ref, { bezel = 16, scale = 34, blur = 5, saturate
   }, [ref, bezel, scale, blur, saturate, enabled, reduced]);
 }
 
+/**
+ * Mientras se desplaza la página, las piezas con refracción pasan a usar solo el desenfoque: el
+ * filtro SVG de la refracción se recalcula en cada fotograma con lo que pasa por detrás y era lo
+ * que más frenaba el desplazamiento. Al parar (150 ms), vuelve la refracción.
+ */
+export function useGlassWhileScrolling() {
+  useEffect(() => {
+    let timer = 0;
+    let on = false;
+    const set = (v) => {
+      on = v;
+      document.querySelectorAll('.lg-refract').forEach((el) => el.classList.toggle('lg-scrolling', v));
+    };
+    const onScroll = () => {
+      if (!on) set(true);
+      clearTimeout(timer);
+      timer = setTimeout(() => set(false), 150);
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      clearTimeout(timer);
+      if (on) set(false);
+    };
+  }, []);
+}
+
 /** Reflejo especular que sigue al puntero sobre las piezas de cristal (.lg-track) */
 export function useGlassHighlight() {
   useEffect(() => {

@@ -32,6 +32,28 @@ const applyOp = (acc, op) => {
   return op.queueAfter ? { ...next, queue: op.queueAfter } : next;
 };
 
+/**
+ * true si un sondeo nuevo no cambia nada de lo que se ve: misma canción, mismo estado, mismo
+ * dispositivo y volumen, y una posición que cuadra (±400 ms) con la que ya se estimaba.
+ * Entonces no hace falta volver a dibujar la app (el reloj lo lee igualmente).
+ */
+function samePlayback(a, b) {
+  if (!a || !b) return a === b;
+  if (
+    a.item?.uri !== b.item?.uri ||
+    a.is_playing !== b.is_playing ||
+    a.shuffle_state !== b.shuffle_state ||
+    a.repeat_state !== b.repeat_state ||
+    a.context?.uri !== b.context?.uri ||
+    a.device?.id !== b.device?.id ||
+    a.device?.name !== b.device?.name ||
+    a.device?.volume_percent !== b.device?.volume_percent
+  )
+    return false;
+  const estimate = Math.min(a.item?.duration_ms || 0, a.progress_ms + (a.is_playing ? b.fetchedAt - a.fetchedAt : 0));
+  return Math.abs(estimate - b.progress_ms) < 400;
+}
+
 /** Posición estimada ahora mismo a partir del último estado conocido */
 const positionOf = (pb) =>
   pb ? Math.min(pb.item?.duration_ms || 0, pb.progress_ms + (pb.is_playing ? Date.now() - pb.fetchedAt : 0)) : 0;
@@ -67,6 +89,8 @@ export function AppProvider({ children }) {
   const [pendingVolume, setPendingVolume] = useState(null);
   const fadeRef = useRef(0); // subida suave de volumen en curso (se cancela al cambiar el volumen a mano)
   const sdkStateRef = useRef(null); // { uri, name, dur, pos, at, playing } del reproductor de este navegador
+  const pollClock = useRef({ latest: null }).current; // último sondeo, también el que no vuelve a dibujar
+  const shownRef = useRef(null); // estado de reproducción que se está mostrando (el de React)
   const startVolumeRef = useRef(false); // el volumen al abrir la app ya se ha aplicado
   const playerRef = useRef(null);
   const sdkIdRef = useRef(null);
@@ -151,6 +175,7 @@ export function AppProvider({ children }) {
     historyRef.current = st.history;
     lastItemRef.current = st.last;
     consumedRef.current = st.consumed;
+    shownRef.current = st.playback;
     setPlayback(st.playback);
     setQueue(st.queue);
     setHistory(st.history);
@@ -219,6 +244,10 @@ export function AppProvider({ children }) {
       const real = st ? { ...st, fetchedAt } : null;
       appliedSeqRef.current = seq;
       playbackRef.current = real;
+      pollClock.latest = real;
+      // Si no cambia nada de lo que se ve, no se vuelve a dibujar la app entera (cada 3 s)
+      if (samePlayback(shownRef.current, real)) return;
+      shownRef.current = real;
       setPlayback(real);
     } catch {
       /* silencioso */
@@ -753,6 +782,7 @@ export function AppProvider({ children }) {
     sdkError,
     actions,
     sdkClock,
+    pollClock,
     volumeNow,
     queue,
     refreshQueue,

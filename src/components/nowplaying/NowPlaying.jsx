@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useArtColor, useArtPalette, useCanvas } from '../../art.js';
 import { useLiquidGlass } from '../../glass.js';
-import { useTick } from '../../clock.js';
 import { useSongOffset } from '../../lyrics.js';
 import { readSettings } from '../../settings.js';
 import { comboOf, isTyping } from '../../shortcuts.js';
 import { sp } from '../../spotify.js';
 import { go, useApp } from '../../store.jsx';
-import { DeviceList, QueueList, Seek, Transport, Volume } from '../controls.jsx';
+import { DeviceList, ProgressLine, QueueList, Seek, Transport, Volume } from '../controls.jsx';
 import { Artists, Icon, fmt, imgOf } from '../ui.jsx';
 import Credits from './Credits.jsx';
 import Lyrics from './Lyrics.jsx';
@@ -126,7 +125,6 @@ export default function NowPlaying({ onClose, clock }) {
   const canvas = canvasState.url;
   const [canvasNoticeHidden, setCanvasNoticeHidden] = useState(false);
   useEffect(() => setCanvasNoticeHidden(false), [item?.id]);
-  const progress = useTick(clock.now, playback?.is_playing, 150);
   const root = useRef(null);
   const tabsRef = useRef(null);
   useLiquidGlass(tabsRef, { bezel: 14, scale: 28 });
@@ -146,6 +144,13 @@ export default function NowPlaying({ onClose, clock }) {
     clock.jump(to);
     actions.seek(to);
   };
+  // Versiones estables (no cambian entre renders) para la letra y las barras de progreso
+  const seekRef = useRef(seek);
+  seekRef.current = seek;
+  const offsetRef = useRef(offset);
+  offsetRef.current = offset;
+  const stableSeek = useCallback((ms) => seekRef.current(ms), []);
+  const lyricSeek = useCallback((t) => seekRef.current(Math.max(0, t - offsetRef.current)), []);
 
   // Foco dentro de la vista al abrir (en la propia vista, no en el botón de cerrar: así Espacio pausa
   // en vez de cerrarla) y vuelta al elemento anterior al cerrar
@@ -193,7 +198,6 @@ export default function NowPlaying({ onClose, clock }) {
     if (on && !document.fullscreenElement) root.current?.requestFullscreen?.()?.catch(() => {});
     if (!on && document.fullscreenElement) document.exitFullscreen().catch(() => {});
   };
-  const lyricSeek = (t) => seek(Math.max(0, t - offset));
   const album = isTrack ? item.album : null;
   const mainArtist = item?.artists?.find((a) => a.id);
   const artistImg = useArtistImage(prefs.bg === 'artist' ? mainArtist?.id : null);
@@ -353,7 +357,7 @@ export default function NowPlaying({ onClose, clock }) {
               <strong>{item.name}</strong>
               <span>{item.artists?.map((a) => a.name).join(', ')}</span>
             </div>
-            <div className="karaoke-progress" style={{ '--p': `${item.duration_ms ? (progress / item.duration_ms) * 100 : 0}%` }} />
+            <ProgressLine className="karaoke-progress" clock={clock} playing={!!playback?.is_playing} duration={item.duration_ms} />
           </footer>
         </div>
       )}
@@ -388,7 +392,7 @@ export default function NowPlaying({ onClose, clock }) {
                   <p>{item.artists ? <Artists artists={item.artists} /> : item.show?.name}</p>
                 </div>
                 <Transport />
-                <Seek progress={progress} duration={item.duration_ms} onSeek={seek} />
+                <Seek clock={clock} playing={!!playback?.is_playing} duration={item.duration_ms} onSeek={stableSeek} />
                 {metaActions}
               </footer>
             )}
@@ -412,7 +416,7 @@ export default function NowPlaying({ onClose, clock }) {
                   )}
                   {/* Dentro del marco: el recorte de la portada (redondeada, cuadrada o circular) se aplica también a la letra */}
                   {isTrack && (prefs.lyrics === 'cover' || prefs.lyrics === 'line') && (
-                    <Lyrics item={item} now={lyricNow} onSeek={seek} variant={prefs.lyrics} {...lyricProps} />
+                    <Lyrics item={item} now={lyricNow} onSeek={stableSeek} variant={prefs.lyrics} {...lyricProps} />
                   )}
                 </div>
               </div>
@@ -428,7 +432,7 @@ export default function NowPlaying({ onClose, clock }) {
                   {metaActions}
                 </div>
                 {layout === 'studio' && <Info item={item} />}
-                <Seek progress={progress} duration={item.duration_ms} onSeek={seek} />
+                <Seek clock={clock} playing={!!playback?.is_playing} duration={item.duration_ms} onSeek={stableSeek} />
                 <Transport large />
                 <Volume />
               </div>

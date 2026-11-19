@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useClock, useTick } from '../clock.js';
+import { useClock } from '../clock.js';
 import { useLiquidGlass } from '../glass.js';
 import { useShortcuts } from '../shortcuts.js';
 import { go, useApp } from '../store.jsx';
@@ -8,16 +8,15 @@ import NowPlaying from './nowplaying/NowPlaying.jsx';
 import { Artists, Cover, Icon, imgOf } from './ui.jsx';
 
 export default function PlayerBar() {
-  const { playback, actions, saved, checkSaved, toggleSaved, route, volumeNow, sdkClock } = useApp();
+  const { playback, actions, saved, checkSaved, toggleSaved, route, volumeNow, sdkClock, pollClock } = useApp();
   const [panel, setPanel] = useState(null); // 'queue' | 'devices'
   const [open, setOpen] = useState(false);
   const item = playback?.item;
-  const clock = useClock(playback, sdkClock);
+  const clock = useClock(playback, sdkClock, pollClock);
   const barRef = useRef(null);
   const popRef = useRef(null);
   useLiquidGlass(barRef);
   useLiquidGlass(popRef, { enabled: !!panel, bezel: 18 });
-  const progress = useTick(clock.now, playback?.is_playing && !open, 250);
 
   // Al navegar (p. ej. pulsando un artista) se cierran la vista y los paneles
   useEffect(() => {
@@ -93,7 +92,7 @@ export default function PlayerBar() {
 
         <div className="controls">
           <Transport />
-          <Seek progress={progress} duration={item?.duration_ms || 0} onSeek={seek} />
+          <Seek clock={clock} playing={!!playback?.is_playing && !open} duration={item?.duration_ms || 0} onSeek={seek} />
         </div>
 
         <div className="extras">
